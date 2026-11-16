@@ -162,18 +162,8 @@ export function MyRequestsClient() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'APPROVED':
-        return <Badge variant="approved">APPROVED</Badge>;
-      case 'REJECTED':
-        return <Badge variant="rejected">REJECTED</Badge>;
-      case 'CANCELLED':
-        return <Badge variant="cancelled">CANCELLED</Badge>;
-      case 'PENDING':
-      default:
-        return <Badge variant="pending">PENDING REVIEW</Badge>;
-    }
+  const getStatusBadge = (status: Booking['status']) => {
+    return <Badge status={status} />;
   };
 
   const formatDate = (iso: string) => {
@@ -359,7 +349,7 @@ export function MyRequestsClient() {
         )}
 
         {authError && (
-          <Alert variant="danger" className="text-xs">
+          <Alert variant="error" className="text-xs">
             {authError}
           </Alert>
         )}

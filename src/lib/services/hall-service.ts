@@ -1,7 +1,7 @@
 import { Hall, HallFilters } from '@/types';
 import { SAMPLE_HALLS } from '@/lib/data/sample-halls';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
-import { createClient } from '@/lib/supabase/server';
+import { createPublicClient } from '@/lib/supabase/server';
 import { mapHallFromDb, DatabaseHallRow } from '@/lib/supabase/types';
 
 export function getDataSourceStatus() {
@@ -22,7 +22,7 @@ export function getDataSourceStatus() {
 export async function getAllHalls(filters?: HallFilters): Promise<Hall[]> {
   if (isSupabaseConfigured()) {
     try {
-      const supabase = await createClient();
+      const supabase = createPublicClient();
       if (supabase) {
         let query = supabase.from('halls').select('*').eq('is_active', true);
 
@@ -115,7 +115,7 @@ export async function getAllHalls(filters?: HallFilters): Promise<Hall[]> {
 export async function getHallBySlug(slug: string): Promise<Hall | null> {
   if (isSupabaseConfigured()) {
     try {
-      const supabase = await createClient();
+      const supabase = createPublicClient();
       if (supabase) {
         const { data, error } = await supabase
           .from('halls')
@@ -145,7 +145,7 @@ export async function getHallBySlug(slug: string): Promise<Hall | null> {
 export async function getHallById(id: string): Promise<Hall | null> {
   if (isSupabaseConfigured()) {
     try {
-      const supabase = await createClient();
+      const supabase = createPublicClient();
       if (supabase) {
         const { data, error } = await supabase
           .from('halls')

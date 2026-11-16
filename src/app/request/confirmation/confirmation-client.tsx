@@ -121,7 +121,7 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
           </form>
 
           {errorMessage && (
-            <Alert variant="danger" className="text-left mt-4 text-xs">
+            <Alert variant="error" className="text-left mt-4 text-xs">
               {errorMessage}
             </Alert>
           )}

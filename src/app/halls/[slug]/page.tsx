@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-export default async function HallDetailPage({ params }: PageProps) {
+async function HallDetailContent({ params }: PageProps) {
   const { slug } = await params;
   const hall = await getHallBySlug(slug);
 
@@ -58,6 +58,9 @@ export default async function HallDetailPage({ params }: PageProps) {
   return (
     <div className="py-8 md:py-12">
       <div className="civic-container space-y-8">
+        {/* Data Source Configuration Banner */}
+        <DataSourceIndicator />
+
         {/* Breadcrumb Navigation */}
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-[#615B52]">
           <Link href="/" className="hover:text-[#1A3B2B] transition-colors">
@@ -237,5 +240,13 @@ export default async function HallDetailPage({ params }: PageProps) {
         </section>
       </div>
     </div>
+  );
+}
+
+export default function HallDetailPage({ params }: PageProps) {
+  return (
+    <Suspense fallback={<div className="py-16 text-center text-xs text-[#615B52]">Loading facility details...</div>}>
+      <HallDetailContent params={params} />
+    </Suspense>
   );
 }
