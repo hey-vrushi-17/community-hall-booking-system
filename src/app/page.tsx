@@ -18,6 +18,8 @@ import { HallCard } from '@/components/halls/hall-card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
+export const instant = false;
+
 export default async function HomePage() {
   const allHalls = await getAllHalls();
   const featuredHalls = allHalls.filter((h) => h.featured).slice(0, 3);

@@ -18,6 +18,8 @@ import { Badge } from '@/components/ui/badge';
 import { HallDetailsInteractive } from '@/components/halls/hall-details-interactive';
 import { DataSourceIndicator } from '@/components/ui/datasource-indicator';
 
+export const instant = false;
+
 interface PageProps {
   params: Promise<{ slug: string }>;
 }

@@ -10,6 +10,8 @@ export const metadata: Metadata = {
     'Browse municipal community halls, check capacity and amenities, and submit booking requests for public or private events.',
 };
 
+export const instant = false;
+
 export default async function HallsPage() {
   const halls = await getAllHalls();
   const amenities = getAllAmenities(halls);
