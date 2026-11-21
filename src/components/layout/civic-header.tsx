@@ -30,7 +30,9 @@ export function CivicHeader() {
             </span>
           </div>
           <div className="hidden sm:flex items-center gap-4 text-[11px] text-[#CDC5B7]">
-            <span>District Facilities Division</span>
+            <Link href="/admin" className="text-white hover:underline font-semibold">
+              Staff Portal
+            </Link>
             <span>•</span>
             <span>Support: facilities@civic.example</span>
           </div>

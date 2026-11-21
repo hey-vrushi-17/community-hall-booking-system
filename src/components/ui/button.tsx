@@ -4,7 +4,7 @@ import { twMerge } from 'tailwind-merge';
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'accent' | 'outline' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'accent' | 'outline' | 'ghost' | 'destructive';
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
 }
@@ -36,6 +36,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         'border border-[#CDC5B7] text-[#1C1917] hover:bg-[#F3EFE8] active:bg-[#EAE4DB]',
       ghost:
         'text-[#615B52] hover:text-[#1C1917] hover:bg-[#F3EFE8]',
+      destructive:
+        'bg-[#B42318] text-white hover:bg-[#912018] active:bg-[#7A1C15] shadow-xs',
     };
 
     const sizes = {

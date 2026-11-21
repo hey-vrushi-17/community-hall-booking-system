@@ -127,3 +127,24 @@ export interface HallFilters {
   amenities?: string[];
   date?: string;
 }
+
+export interface HallUtilization {
+  hallId: string;
+  hallName: string;
+  capacity: number;
+  totalBookings: number;
+  approvedHours: number;
+  utilizationRate: number; // percentage (0-100)
+}
+
+export interface AdminDashboardSummary {
+  pendingCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  activeMaintenanceCount: number;
+  totalBookingsCount: number;
+  hallUtilization: HallUtilization[];
+  recentPendingRequests: Booking[];
+  upcomingApprovedBookings: Booking[];
+  activeMaintenance: MaintenanceWindow[];
+}

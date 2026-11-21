@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Calendar, Clock, AlertCircle, CheckCircle2, ShieldAlert, Wrench, Info } from 'lucide-react';
+import { Calendar, Clock, AlertCircle, CheckCircle2, ShieldAlert, Wrench, Info, ChevronLeft, ChevronRight } from 'lucide-react';
 import { TimeSlot } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,6 +47,20 @@ export function AvailabilityChecker({
     }
   }, [selectedDate, fetchSchedule]);
 
+  const handleDateStep = (days: number) => {
+    try {
+      const parts = selectedDate.split('-');
+      const d = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+      d.setUTCDate(d.getUTCDate() + days);
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      setSelectedDate(`${yyyy}-${mm}-${dd}`);
+    } catch {
+      // fallback
+    }
+  };
+
   const availableCount = slots.filter((s) => s.isAvailable).length;
   const bookedCount = slots.filter((s) => s.conflictReason === 'APPROVED_BOOKING').length;
   const maintCount = slots.filter((s) => s.conflictReason === 'MAINTENANCE_WINDOW').length;
@@ -65,18 +79,34 @@ export function AvailabilityChecker({
           </p>
         </div>
 
-        {/* Date Selector */}
-        <div className="flex items-center gap-2">
-          <label htmlFor="schedule-date" className="text-xs font-semibold text-[#1C1917] shrink-0">
-            Select Date:
+        {/* Date Selector with Step Controls */}
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="schedule-date" className="text-xs font-semibold text-[#1C1917] shrink-0 mr-1">
+            Date:
           </label>
+          <button
+            type="button"
+            onClick={() => handleDateStep(-1)}
+            title="Previous Day"
+            className="p-1.5 rounded border border-[#E5DFD5] bg-[#FBF9F5] text-[#615B52] hover:text-[#1A3B2B] hover:bg-[#EBF3EE] transition-colors"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
           <input
             id="schedule-date"
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            className="text-xs font-medium px-3 py-1.5 rounded-md border border-[#E5DFD5] bg-[#FBF9F5] text-[#1C1917] focus:ring-1 focus:ring-[#1A3B2B] focus:border-[#1A3B2B]"
+            className="text-xs font-medium px-2.5 py-1.5 rounded-md border border-[#E5DFD5] bg-[#FBF9F5] text-[#1C1917] focus:ring-1 focus:ring-[#1A3B2B] focus:border-[#1A3B2B]"
           />
+          <button
+            type="button"
+            onClick={() => handleDateStep(1)}
+            title="Next Day"
+            className="p-1.5 rounded border border-[#E5DFD5] bg-[#FBF9F5] text-[#615B52] hover:text-[#1A3B2B] hover:bg-[#EBF3EE] transition-colors"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
