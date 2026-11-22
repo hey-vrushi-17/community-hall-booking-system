@@ -137,7 +137,10 @@ export async function GET(request: NextRequest) {
     // 3. Fallback general list
     const bookings = await getAllBookings();
     return NextResponse.json({ bookings });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.digest?.startsWith?.('NEXT_') || error?.digest === 'HANGING_PROMISE_REJECTION') {
+      throw error;
+    }
     console.error('Fetch bookings error:', error);
     return NextResponse.json({ error: 'Failed to retrieve bookings' }, { status: 500 });
   }

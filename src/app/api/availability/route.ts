@@ -54,7 +54,10 @@ export async function GET(request: NextRequest) {
         ? 'Live Supabase schedule: Approved bookings and active maintenance windows block availability. Submitted requests remain pending and do not block dates.'
         : 'Development sample schedule: Approved bookings and active maintenance windows block availability. Submitted requests remain pending and do not block dates.',
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.digest?.startsWith?.('NEXT_') || error?.digest === 'HANGING_PROMISE_REJECTION') {
+      throw error;
+    }
     console.error('Availability check error:', error);
     return NextResponse.json(
       { error: 'An error occurred while evaluating facility availability' },

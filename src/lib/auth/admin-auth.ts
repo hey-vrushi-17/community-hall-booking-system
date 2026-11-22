@@ -49,8 +49,13 @@ export async function getAdminSession(): Promise<AdminSessionResult> {
           }
         }
       }
-    } catch (err) {
-      console.warn('Supabase admin session check error:', err);
+    } catch (err: any) {
+      if (err?.digest?.startsWith?.('NEXT_') || err?.digest === 'HANGING_PROMISE_REJECTION') {
+        throw err;
+      }
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Supabase admin session check error:', err);
+      }
     }
   }
 
@@ -85,8 +90,11 @@ export async function getAdminSession(): Promise<AdminSessionResult> {
         }
       }
     }
-  } catch (err) {
-    console.debug('Cookie check outside request context:', err);
+  } catch (err: any) {
+    if (err?.digest?.startsWith?.('NEXT_') || err?.digest === 'HANGING_PROMISE_REJECTION') {
+      throw err;
+    }
+    // outside request context during prerendering
   }
 
   return {

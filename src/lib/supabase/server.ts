@@ -58,7 +58,10 @@ export async function createClient() {
         },
       },
     });
-  } catch {
+  } catch (err: any) {
+    if (err?.digest?.startsWith?.('NEXT_') || err?.digest === 'HANGING_PROMISE_REJECTION') {
+      throw err;
+    }
     // If called outside of a request context (e.g. static generation), fallback to public client
     return createPublicClient();
   }

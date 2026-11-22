@@ -5,6 +5,16 @@ import { createPublicClient } from '@/lib/supabase/server';
 import { createClient } from '@/lib/supabase/server';
 import { mapHallFromDb, DatabaseHallRow } from '@/lib/supabase/types';
 
+// Helper to mute internal Next.js prerender bail-out exceptions and dev-only fallbacks
+function logHallWarning(msg: string, err?: unknown) {
+  if ((err as any)?.digest?.startsWith?.('NEXT_') || (err as any)?.digest === 'HANGING_PROMISE_REJECTION') {
+    throw err;
+  }
+  if (process.env.NODE_ENV === 'development') {
+    logHallWarning(msg, err);
+  }
+}
+
 // Runtime in-memory halls store (allows creation, edits, and archiving in development mode)
 let runtimeHalls: Hall[] = [...SAMPLE_HALLS];
 
@@ -40,7 +50,9 @@ export async function getAllHalls(filters?: HallFilters): Promise<Hall[]> {
         const { data, error } = await query.order('featured', { ascending: false }).order('name');
 
         if (error) {
-          console.warn('Supabase query error in getAllHalls, falling back to sample halls:', error.message);
+          if (process.env.NODE_ENV === 'development') {
+            logHallWarning('Supabase query error in getAllHalls, falling back to sample halls:', error.message);
+          }
         } else if (data && data.length > 0) {
           let results: Hall[] = (data as unknown as DatabaseHallRow[]).map(mapHallFromDb);
 
@@ -68,7 +80,7 @@ export async function getAllHalls(filters?: HallFilters): Promise<Hall[]> {
         }
       }
     } catch (err) {
-      console.warn('Failed to reach Supabase in getAllHalls:', err);
+      logHallWarning('Failed to reach Supabase in getAllHalls:', err);
     }
   }
 
@@ -130,7 +142,7 @@ export async function getAllHallsAdmin(includeArchived = true): Promise<Hall[]> 
         }
       }
     } catch (err) {
-      console.warn('Supabase getAllHallsAdmin failed, using runtime store:', err);
+      logHallWarning('Supabase getAllHallsAdmin failed, using runtime store:', err);
     }
   }
 
@@ -155,13 +167,13 @@ export async function getHallBySlug(slug: string): Promise<Hall | null> {
           .maybeSingle();
 
         if (error) {
-          console.warn(`Supabase error fetching hall slug "${slug}":`, error.message);
+          logHallWarning(`Supabase error fetching hall slug "${slug}":`, error.message);
         } else if (data) {
           return mapHallFromDb(data as unknown as DatabaseHallRow);
         }
       }
     } catch (err) {
-      console.warn('Error reading hall from Supabase:', err);
+      logHallWarning('Error reading hall from Supabase:', err);
     }
   }
 
@@ -184,13 +196,13 @@ export async function getHallById(id: string): Promise<Hall | null> {
           .maybeSingle();
 
         if (error) {
-          console.warn(`Supabase error fetching hall ID "${id}":`, error.message);
+          logHallWarning(`Supabase error fetching hall ID "${id}":`, error.message);
         } else if (data) {
           return mapHallFromDb(data as unknown as DatabaseHallRow);
         }
       }
     } catch (err) {
-      console.warn('Error reading hall from Supabase:', err);
+      logHallWarning('Error reading hall from Supabase:', err);
     }
   }
 
@@ -266,11 +278,11 @@ export async function createHall(data: Partial<Hall>): Promise<Hall> {
         });
 
         if (error) {
-          console.warn('Failed to insert hall into Supabase, saving to runtime store:', error.message);
+          logHallWarning('Failed to insert hall into Supabase, saving to runtime store:', error.message);
         }
       }
     } catch (err) {
-      console.warn('Supabase createHall error:', err);
+      logHallWarning('Supabase createHall error:', err);
     }
   }
 
@@ -320,7 +332,7 @@ export async function updateHall(id: string, updates: Partial<Hall>): Promise<Ha
         await supabase.from('halls').update(payload).eq('id', id);
       }
     } catch (err) {
-      console.warn('Supabase updateHall error:', err);
+      logHallWarning('Supabase updateHall error:', err);
     }
   }
 

@@ -23,6 +23,16 @@ import {
 } from '@/lib/supabase/types';
 import { getHallById } from './hall-service';
 
+// Helper to mute internal Next.js prerender bail-out exceptions and dev-only fallbacks
+function logStoreWarning(msg: string, err: unknown) {
+  if ((err as any)?.digest?.startsWith?.('NEXT_') || (err as any)?.digest === 'HANGING_PROMISE_REJECTION') {
+    throw err;
+  }
+  if (process.env.NODE_ENV === 'development') {
+    logStoreWarning(msg, err);
+  }
+}
+
 // In-Memory Fallback Store (Used when Supabase credentials are not configured)
 class BookingDataStore {
   private bookings: Booking[] = [...INITIAL_SAMPLE_BOOKINGS];
@@ -63,7 +73,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        console.warn('Supabase getBookingsForHall failed, using fallback:', err);
+        logStoreWarning('Supabase getBookingsForHall failed, using fallback:', err);
       }
     }
     return this.bookings.filter((b) => b.hallId === hallId);
@@ -84,7 +94,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        console.warn('Supabase getMaintenanceForHall failed, using fallback:', err);
+        logStoreWarning('Supabase getMaintenanceForHall failed, using fallback:', err);
       }
     }
     return this.maintenance.filter((m) => m.hallId === hallId);
@@ -105,7 +115,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        console.warn('Supabase getAllMaintenance failed, using fallback:', err);
+        logStoreWarning('Supabase getAllMaintenance failed, using fallback:', err);
       }
     }
     return [...this.maintenance].sort(
@@ -129,7 +139,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        console.warn('Supabase getAllBookings failed, using fallback:', err);
+        logStoreWarning('Supabase getAllBookings failed, using fallback:', err);
       }
     }
 
@@ -158,7 +168,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        console.warn('Supabase getBookingByReference failed, using fallback:', err);
+        logStoreWarning('Supabase getBookingByReference failed, using fallback:', err);
       }
     }
 
@@ -184,7 +194,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        console.warn('Supabase getBookingById failed, using fallback:', err);
+        logStoreWarning('Supabase getBookingById failed, using fallback:', err);
       }
     }
 
@@ -211,7 +221,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        console.warn('Supabase getUserBookings failed, using fallback:', err);
+        logStoreWarning('Supabase getUserBookings failed, using fallback:', err);
       }
     }
 
@@ -280,7 +290,7 @@ class BookingDataStore {
           }
         }
       } catch (err: unknown) {
-        console.warn('Supabase booking creation encountered an error, falling back to local store:', err);
+        logStoreWarning('Supabase booking creation encountered an error, falling back to local store:', err);
       }
     }
 
@@ -443,7 +453,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        console.warn('Supabase rejectBooking failed, fallback to local store:', err);
+        logStoreWarning('Supabase rejectBooking failed, fallback to local store:', err);
       }
     }
 
@@ -586,11 +596,11 @@ class BookingDataStore {
             status: newWindow.status,
           });
           if (error) {
-            console.warn('Supabase insert maintenance failed, using local store:', error.message);
+            logStoreWarning('Supabase insert maintenance failed, using local store:', error.message);
           }
         }
       } catch (err) {
-        console.warn('Supabase createMaintenanceWindow error:', err);
+        logStoreWarning('Supabase createMaintenanceWindow error:', err);
       }
     }
 
@@ -673,7 +683,7 @@ class BookingDataStore {
           await supabase.from('maintenance_windows').update(payload).eq('id', id);
         }
       } catch (err) {
-        console.warn('Supabase updateMaintenanceWindow error:', err);
+        logStoreWarning('Supabase updateMaintenanceWindow error:', err);
       }
     }
 
