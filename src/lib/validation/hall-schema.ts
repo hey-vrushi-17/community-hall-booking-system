@@ -10,12 +10,12 @@ export const HallSchema = z.object({
   tagline: z.string().optional(),
   description: z.string().min(1, { message: 'Description is required.' }),
   hourly_rate: z
-    .number({ invalid_type_error: 'Hourly rate must be a number.' })
+    .number({ error: 'Hourly rate must be a number.' })
     .nonnegative({ message: 'Hourly rate cannot be negative.' })
     .optional()
     .default(0),
   capacity: z
-    .number({ invalid_type_error: 'Capacity must be a number.' })
+    .number({ error: 'Capacity must be a number.' })
     .int({ message: 'Capacity must be an integer.' })
     .positive({ message: 'Capacity must be greater than 0.' }),
   location: z.string().min(1, { message: 'Location is required.' }),
