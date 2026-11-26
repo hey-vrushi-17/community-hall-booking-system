@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { bookingFormSchema } from '@/lib/validation/booking-schema';
+import {
+  bookingFormSchema,
+  validateBookingBusinessRules,
+} from '@/lib/validation/booking-schema';
 import {
   createBookingRequest,
   getBookingByReference,
@@ -7,8 +10,33 @@ import {
   getUserBookings,
 } from '@/lib/services/booking-store';
 import { checkSlotAvailability } from '@/lib/services/availability-service';
+import { DatabaseSetupError, getHallById } from '@/lib/services/hall-service';
 import { createClient } from '@/lib/supabase/server';
-import { isSupabaseConfigured } from '@/lib/supabase/config';
+import { isSupabaseConfigured, rethrowNextControlFlowError } from '@/lib/supabase/config';
+import { getAdminSession } from '@/lib/auth/admin-auth';
+import { zonedLocalToUtcDate } from '@/lib/utils/timezone';
+import { Booking } from '@/types';
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!local || !domain) return '•••@•••';
+  const visible = local.slice(0, 2);
+  return `${visible}***@${domain}`;
+}
+
+function maskPhone(phone: string): string {
+  const trimmed = phone.trim();
+  if (trimmed.length <= 4) return '••••';
+  return `${'•'.repeat(Math.max(4, trimmed.length - 4))}${trimmed.slice(-4)}`;
+}
+
+function redactBookingForPublicLookup(booking: Booking): Booking {
+  return {
+    ...booking,
+    requesterEmail: maskEmail(booking.requesterEmail),
+    requesterPhone: maskPhone(booking.requesterPhone),
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,10 +54,21 @@ export async function POST(request: NextRequest) {
     }
 
     const data = validation.data;
+    const hall = await getHallById(data.hallId);
+    const ruleViolations = validateBookingBusinessRules(data, hall);
 
-    // Check slot availability at submission time to ensure requester is informed
-    const startDateTime = new Date(`${data.bookingDate}T${data.startTime}:00Z`);
-    const endDateTime = new Date(`${data.bookingDate}T${data.endTime}:00Z`);
+    if (ruleViolations.length > 0) {
+      return NextResponse.json(
+        {
+          error: ruleViolations[0].message,
+          issues: ruleViolations.map((v) => ({ path: [v.field], message: v.message })),
+        },
+        { status: 422 }
+      );
+    }
+
+    const startDateTime = zonedLocalToUtcDate(data.bookingDate, data.startTime);
+    const endDateTime = zonedLocalToUtcDate(data.bookingDate, data.endTime);
     const availability = await checkSlotAvailability(data.hallId, startDateTime, endDateTime);
 
     if (!availability.isAvailable) {
@@ -54,7 +93,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Identify if the request comes from an authenticated user
     let userId: string | null = null;
     if (isSupabaseConfigured()) {
       try {
@@ -65,13 +103,11 @@ export async function POST(request: NextRequest) {
             userId = authData.user.id;
           }
         }
-      } catch (authErr) {
-        // Unauthenticated public requester is supported and welcome
-        console.debug('Public unauthenticated request submission:', authErr);
+      } catch {
+        // Unauthenticated public requester is supported
       }
     }
 
-    // Persist as a PENDING request - never confirmed automatically
     const newBooking = await createBookingRequest(data, userId);
 
     return NextResponse.json(
@@ -85,7 +121,14 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (error) {
+  } catch (error: unknown) {
+    rethrowNextControlFlowError(error);
+    if (error instanceof DatabaseSetupError) {
+      return NextResponse.json(
+        { error: 'Booking service is temporarily unavailable: database schema not ready.', details: error.message },
+        { status: 503 }
+      );
+    }
     console.error('Submit booking error:', error);
     return NextResponse.json(
       { error: 'Failed to process booking submission. Please verify your connection.' },
@@ -109,7 +152,23 @@ export async function GET(request: NextRequest) {
           { status: 404 }
         );
       }
-      return NextResponse.json({ booking });
+
+      // Check if viewer is authorized for unredacted PII (owner or admin)
+      let canViewPrivateDetails = false;
+      const adminSession = await getAdminSession();
+      if (adminSession.isAuthenticated) {
+        canViewPrivateDetails = true;
+      } else if (isSupabaseConfigured() && booking.userId) {
+        const supabase = await createClient();
+        const { data: authData } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
+        if (authData?.user?.id === booking.userId) {
+          canViewPrivateDetails = true;
+        }
+      }
+
+      return NextResponse.json({
+        booking: canViewPrivateDetails ? booking : redactBookingForPublicLookup(booking),
+      });
     }
 
     // 2. Safe requester-scoped query for authenticated user
@@ -134,12 +193,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ bookings: userBookings });
     }
 
-    // 3. Fallback general list
+    // 3. Admin-only full list
+    const adminSession = await getAdminSession();
+    if (!adminSession.isAuthenticated) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Provide a booking reference number or sign in.' },
+        { status: 403 }
+      );
+    }
+
     const bookings = await getAllBookings();
     return NextResponse.json({ bookings });
-  } catch (error: any) {
-    if (error?.digest?.startsWith?.('NEXT_') || error?.digest === 'HANGING_PROMISE_REJECTION') {
-      throw error;
+  } catch (error: unknown) {
+    rethrowNextControlFlowError(error);
+    if (error instanceof DatabaseSetupError) {
+      return NextResponse.json(
+        { error: 'Booking records are unavailable: database schema not ready.', details: error.message },
+        { status: 503 }
+      );
     }
     console.error('Fetch bookings error:', error);
     return NextResponse.json({ error: 'Failed to retrieve bookings' }, { status: 500 });

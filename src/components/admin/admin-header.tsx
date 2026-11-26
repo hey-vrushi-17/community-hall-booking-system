@@ -11,9 +11,9 @@ import {
   Calendar,
   LogOut,
   ExternalLink,
-  ShieldCheck,
   Building,
   Wrench,
+  History,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AdminUser } from '@/lib/auth/admin-auth';
@@ -61,6 +61,11 @@ export function AdminHeader({ user, pendingCount = 0 }: AdminHeaderProps) {
       label: 'Booking Records',
       icon: FileSpreadsheet,
     },
+    {
+      href: '/admin/audit',
+      label: 'Audit History',
+      icon: History,
+    },
   ];
 
   const handleSignOut = async () => {
@@ -78,7 +83,6 @@ export function AdminHeader({ user, pendingCount = 0 }: AdminHeaderProps) {
 
   return (
     <div className="border-b border-[#E5DFD5] bg-white sticky top-0 z-30 shadow-xs">
-      {/* Top Banner */}
       <div className="bg-[#18283E] text-white text-xs py-1.5 px-4">
         <div className="civic-container flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -99,10 +103,8 @@ export function AdminHeader({ user, pendingCount = 0 }: AdminHeaderProps) {
         </div>
       </div>
 
-      {/* Main Admin Navigation */}
       <div className="civic-container">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between py-3 gap-3">
-          {/* Identity & Portal Title */}
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-md bg-[#1A3B2B] text-white flex items-center justify-center font-bold">
               <Building className="w-5 h-5" />
@@ -122,7 +124,6 @@ export function AdminHeader({ user, pendingCount = 0 }: AdminHeaderProps) {
             </div>
           </div>
 
-          {/* User actions */}
           <div className="flex items-center gap-2 self-end sm:self-auto">
             <Button
               variant="outline"
@@ -137,8 +138,7 @@ export function AdminHeader({ user, pendingCount = 0 }: AdminHeaderProps) {
           </div>
         </div>
 
-        {/* Tab Links */}
-        <nav className="flex items-center gap-1 border-t border-[#E5DFD5] pt-1 overflow-x-auto">
+        <nav className="flex items-center gap-1 border-t border-[#E5DFD5] pt-1 overflow-x-auto" aria-label="Administrator Navigation">
           {navLinks.map((link) => {
             const isActive = link.exact
               ? pathname === link.href

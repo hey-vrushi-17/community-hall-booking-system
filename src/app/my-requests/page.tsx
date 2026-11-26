@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { Landmark, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { MyRequestsClient } from './my-requests-client';
 
 export const metadata: Metadata = {

@@ -42,9 +42,9 @@ export function getSupabaseConfig(): SupabaseConfig {
  */
 export function getSupabaseServiceRoleKey(): string | null {
   if (typeof window !== 'undefined') {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY must never be accessed from client-side code.');
+    throw new Error('SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY must never be accessed from client-side code.');
   }
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const key = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim();
   return key && key.length > 0 ? key : null;
 }
 

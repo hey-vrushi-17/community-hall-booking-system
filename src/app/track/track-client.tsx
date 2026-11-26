@@ -3,22 +3,12 @@
 import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import {
-  Search,
-  CheckCircle2,
-  Clock,
-  XCircle,
-  AlertCircle,
-  Building,
-  Calendar,
-  Users,
-  FileText,
-  ShieldAlert,
-} from 'lucide-react';
+import { Search, Building, Calendar, Users } from 'lucide-react';
 import { Booking } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
+import { formatDateInAppTz, formatTimeInAppTz, getTimezoneLabel } from '@/lib/utils/timezone';
 
 export function TrackRequestClient() {
   const searchParams = useSearchParams();
@@ -26,9 +16,10 @@ export function TrackRequestClient() {
 
   const [refInput, setRefInput] = React.useState(initialRef);
   const [booking, setBooking] = React.useState<Booking | null>(null);
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(Boolean(initialRef));
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-  const [hasSearched, setHasSearched] = React.useState(false);
+  const [hasSearched, setHasSearched] = React.useState(Boolean(initialRef));
+  const tzLabel = getTimezoneLabel();
 
   const fetchBooking = React.useCallback(async (code: string) => {
     if (!code.trim()) return;
@@ -55,46 +46,39 @@ export function TrackRequestClient() {
   }, []);
 
   React.useEffect(() => {
-    if (initialRef) {
-      fetchBooking(initialRef);
-    }
-  }, [initialRef, fetchBooking]);
+    if (!initialRef) return;
+    let active = true;
+    fetch(`/api/bookings?ref=${encodeURIComponent(initialRef.trim())}`)
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!active) return;
+        if (!ok) {
+          setErrorMessage(data.error || 'No matching booking request found.');
+          setBooking(null);
+        } else {
+          setBooking(data.booking);
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setErrorMessage('Network error occurred while fetching tracking details.');
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialRef]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     fetchBooking(refInput);
   };
 
-  const formatDate = (isoString: string) => {
-    try {
-      const d = new Date(isoString);
-      return d.toLocaleDateString('en-US', {
-        weekday: 'short',
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      });
-    } catch {
-      return isoString;
-    }
-  };
-
-  const formatTime = (isoString: string) => {
-    try {
-      const d = new Date(isoString);
-      return d.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'UTC',
-      });
-    } catch {
-      return isoString;
-    }
-  };
-
   return (
     <div className="space-y-6">
-      {/* Search Input Bar */}
       <form onSubmit={handleSubmit} className="civic-card p-4 bg-white border border-[#E5DFD5]">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -104,6 +88,7 @@ export function TrackRequestClient() {
               value={refInput}
               onChange={(e) => setRefInput(e.target.value)}
               placeholder="Enter reference number (e.g. REQ-2026-8041)"
+              aria-label="Booking Reference Number"
               className="w-full pl-9 pr-4 py-2.5 text-sm rounded-md border border-[#E5DFD5] bg-[#FBF9F5] uppercase tracking-wider text-[#1C1917] placeholder:normal-case placeholder:tracking-normal focus:ring-1 focus:ring-[#1A3B2B] focus:border-[#1A3B2B]"
             />
           </div>
@@ -118,16 +103,15 @@ export function TrackRequestClient() {
         </div>
       </form>
 
-      {/* Suggested Quick Lookups */}
       {!hasSearched && (
         <div className="p-4 rounded-md bg-[#F5F2EB] border border-[#E5DFD5] text-xs text-[#615B52]">
           <span className="font-semibold text-[#1C1917] block mb-1.5">
-            Sample Demonstrative Reference Codes to Explore:
+            Sample Reference Codes (for Local / Seeded Exploration):
           </span>
           <div className="flex flex-wrap gap-2">
             {[
-              { ref: 'REQ-2026-8041', label: 'REQ-2026-8041 (Approved Gala)' },
-              { ref: 'REQ-2026-8150', label: 'REQ-2026-8150 (Approved Seed Swap)' },
+              { ref: 'REQ-2026-8041', label: 'REQ-2026-8041 (Approved)' },
+              { ref: 'REQ-2026-8150', label: 'REQ-2026-8150 (Approved)' },
               { ref: 'REQ-2026-8302', label: 'REQ-2026-8302 (Pending Review)' },
             ].map((item) => (
               <button
@@ -146,17 +130,14 @@ export function TrackRequestClient() {
         </div>
       )}
 
-      {/* Error Message */}
       {errorMessage && (
         <Alert variant="error" title="Record Lookup Notice">
           {errorMessage}
         </Alert>
       )}
 
-      {/* Booking Record Result Card */}
       {booking && (
         <div className="civic-card bg-white border border-[#E5DFD5] divide-y divide-[#E5DFD5] overflow-hidden">
-          {/* Header */}
           <div className="p-6 bg-[#FBF9F5] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -172,7 +153,6 @@ export function TrackRequestClient() {
             <Badge status={booking.status} className="text-xs py-1 px-3 self-start sm:self-auto" />
           </div>
 
-          {/* Status Explanation Banner */}
           <div className="p-4 bg-white">
             {booking.status === 'APPROVED' ? (
               <Alert variant="success" title="Booking Confirmed & Locked">
@@ -181,7 +161,7 @@ export function TrackRequestClient() {
               </Alert>
             ) : booking.status === 'PENDING' ? (
               <Alert variant="warning" title="Awaiting Administrative Review">
-                Your request is currently queued with municipal facility staff. Submitting a
+                Your request is currently queued with facility staff. Submitting a
                 request does not lock the venue until an administrative approval is issued.
               </Alert>
             ) : booking.status === 'REJECTED' ? (
@@ -196,9 +176,7 @@ export function TrackRequestClient() {
             )}
           </div>
 
-          {/* Details Grid */}
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-[#1C1917]">
-            {/* Left Col */}
             <div className="space-y-4">
               <div>
                 <span className="text-[#8A8275] uppercase font-semibold block mb-1">
@@ -212,20 +190,25 @@ export function TrackRequestClient() {
 
               <div>
                 <span className="text-[#8A8275] uppercase font-semibold block mb-1">
-                  Reserved Date & Time Window
+                  Requested Date &amp; Time Window ({tzLabel})
                 </span>
                 <div className="flex items-center gap-2 font-medium">
                   <Calendar className="w-4 h-4 text-[#1A3B2B]" />
                   <span>
-                    {formatDate(booking.startTime)} ({formatTime(booking.startTime)} –{' '}
-                    {formatTime(booking.endTime)})
+                    {formatDateInAppTz(booking.startTime, {
+                      weekday: 'short',
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })}{' '}
+                    ({formatTimeInAppTz(booking.startTime)} – {formatTimeInAppTz(booking.endTime)})
                   </span>
                 </div>
               </div>
 
               <div>
                 <span className="text-[#8A8275] uppercase font-semibold block mb-1">
-                  Event Category & Attendees
+                  Event Category &amp; Attendees
                 </span>
                 <div className="flex items-center gap-2">
                   <Users className="w-4 h-4 text-[#1A3B2B]" />
@@ -236,7 +219,6 @@ export function TrackRequestClient() {
               </div>
             </div>
 
-            {/* Right Col */}
             <div className="space-y-4">
               <div>
                 <span className="text-[#8A8275] uppercase font-semibold block mb-1">
@@ -246,7 +228,7 @@ export function TrackRequestClient() {
                   <strong>{booking.requesterName}</strong>
                   {booking.requesterOrg && <span> ({booking.requesterOrg})</span>}
                 </p>
-                <p className="text-[#615B52]">{booking.requesterEmail}</p>
+                <p className="text-[#615B52] font-mono">{booking.requesterEmail}</p>
                 <p className="text-[#615B52]">{booking.requesterPhone}</p>
               </div>
 
@@ -256,15 +238,12 @@ export function TrackRequestClient() {
                 </span>
                 {booking.reviewedAt ? (
                   <div className="space-y-1">
-                    <p>
-                      Reviewed by: <span className="font-medium">{booking.reviewedBy}</span>
-                    </p>
                     <p className="text-[#615B52]">
-                      Decided: {formatDate(booking.reviewedAt)}
+                      Decided: {formatDateInAppTz(booking.reviewedAt)}
                     </p>
                     {booking.decisionNotes && (
                       <p className="text-[#615B52] italic">
-                        Notes: &quot;{booking.decisionNotes}&quot;
+                        Notes: &ldquo;{booking.decisionNotes}&rdquo;
                       </p>
                     )}
                   </div>
@@ -277,10 +256,9 @@ export function TrackRequestClient() {
             </div>
           </div>
 
-          {/* Footer Action */}
           <div className="p-4 bg-[#FBF9F5] flex items-center justify-between">
             <span className="text-[11px] text-[#8A8275]">
-              Submitted on {formatDate(booking.createdAt)}
+              Submitted on {formatDateInAppTz(booking.createdAt)}
             </span>
             <Link href="/halls">
               <Button variant="outline" size="sm" className="text-xs">

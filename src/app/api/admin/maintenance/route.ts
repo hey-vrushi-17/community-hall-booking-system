@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/auth/admin-auth';
 import { getAllMaintenance, createMaintenanceWindow } from '@/lib/services/booking-store';
+import { maintenanceFormSchema } from '@/lib/validation/booking-schema';
 
 export async function GET() {
   const session = await getAdminSession();
-  if (!session.isAuthenticated) {
+  if (!session.isAuthenticated || !session.user) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 403 });
   }
 
@@ -15,26 +16,25 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const session = await getAdminSession();
-    if (!session.isAuthenticated) {
+    if (!session.isAuthenticated || !session.user) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 403 });
     }
 
     const body = await request.json();
-    const { hallId, title, reason, startTime, endTime } = body;
-
-    if (!hallId || !title || !reason || !startTime || !endTime) {
+    const parsed = maintenanceFormSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: 'All fields (hall, title, reason, start time, end time) are required.' },
-        { status: 400 }
+        {
+          error: parsed.error.issues[0]?.message || 'Invalid maintenance schedule details.',
+          issues: parsed.error.issues,
+        },
+        { status: 422 }
       );
     }
 
-    const result = await createMaintenanceWindow({
-      hallId,
-      title,
-      reason,
-      startTime,
-      endTime,
+    const result = await createMaintenanceWindow(parsed.data, {
+      id: session.user.id,
+      email: session.user.email,
     });
 
     if (!result.success) {

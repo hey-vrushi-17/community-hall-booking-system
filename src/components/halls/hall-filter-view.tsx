@@ -1,16 +1,21 @@
 'use client';
 
 import * as React from 'react';
-import { Search, Filter, RotateCcw, Building2, Check, Users } from 'lucide-react';
+import { Search, RotateCcw, Building2, Check, Calendar, AlertCircle } from 'lucide-react';
 import { Hall } from '@/types';
 import { HallCard } from './hall-card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 
 export interface HallFilterViewProps {
   initialHalls: Hall[];
   availableAmenities: string[];
   availableNeighborhoods: string[];
+}
+
+interface HallDateAvailability {
+  availableHours: number;
+  totalHours: number;
+  hasAvailability: boolean;
 }
 
 export function HallFilterView({
@@ -22,16 +27,47 @@ export function HallFilterView({
   const [capacityRange, setCapacityRange] = React.useState<string>('all');
   const [selectedNeighborhood, setSelectedNeighborhood] = React.useState<string>('all');
   const [selectedAmenities, setSelectedAmenities] = React.useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = React.useState<string>('');
+  const [dateAvailability, setDateAvailability] = React.useState<
+    Record<string, HallDateAvailability> | null
+  >(null);
+  const [isCheckingDate, setIsCheckingDate] = React.useState(false);
+  const [dateError, setDateError] = React.useState<string | null>(null);
 
-  // Capacity filtering helper
+  const handleDateChange = async (newDate: string) => {
+    setSelectedDate(newDate);
+    setDateError(null);
+    if (!newDate) {
+      setDateAvailability(null);
+      return;
+    }
+
+    setIsCheckingDate(true);
+    try {
+      const res = await fetch(`/api/availability?date=${encodeURIComponent(newDate)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setDateAvailability(null);
+        setDateError(data.error || 'Real availability data is currently unavailable.');
+      } else {
+        setDateAvailability(data.hallsAvailability || null);
+      }
+    } catch {
+      setDateAvailability(null);
+      setDateError('Unable to verify date availability. Please try again.');
+    } finally {
+      setIsCheckingDate(false);
+    }
+  };
+
   const matchesCapacity = (hallCapacity: number, range: string) => {
     switch (range) {
       case 'small':
-        return hallCapacity <= 70;
+        return hallCapacity <= 150;
       case 'medium':
-        return hallCapacity > 70 && hallCapacity <= 180;
+        return hallCapacity > 150 && hallCapacity <= 600;
       case 'large':
-        return hallCapacity > 180;
+        return hallCapacity > 600;
       default:
         return true;
     }
@@ -50,11 +86,13 @@ export function HallFilterView({
     setCapacityRange('all');
     setSelectedNeighborhood('all');
     setSelectedAmenities([]);
+    setSelectedDate('');
+    setDateAvailability(null);
+    setDateError(null);
   };
 
   const filteredHalls = React.useMemo(() => {
     return initialHalls.filter((hall) => {
-      // 1. Text search
       if (search.trim()) {
         const q = search.toLowerCase().trim();
         const matchesName = hall.name.toLowerCase().includes(q);
@@ -68,17 +106,14 @@ export function HallFilterView({
         }
       }
 
-      // 2. Capacity range
       if (!matchesCapacity(hall.capacity, capacityRange)) {
         return false;
       }
 
-      // 3. Neighborhood
       if (selectedNeighborhood !== 'all' && hall.neighborhood !== selectedNeighborhood) {
         return false;
       }
 
-      // 4. Amenities
       if (selectedAmenities.length > 0) {
         const hasAllAmenities = selectedAmenities.every((selAmenity) =>
           hall.amenities.some((a) => a.toLowerCase().includes(selAmenity.toLowerCase()))
@@ -88,69 +123,95 @@ export function HallFilterView({
         }
       }
 
+      if (selectedDate && dateAvailability) {
+        const info = dateAvailability[hall.id];
+        if (!info || !info.hasAvailability) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [initialHalls, search, capacityRange, selectedNeighborhood, selectedAmenities]);
+  }, [initialHalls, search, capacityRange, selectedNeighborhood, selectedAmenities, selectedDate, dateAvailability]);
 
   const hasActiveFilters =
     search.trim() !== '' ||
     capacityRange !== 'all' ||
     selectedNeighborhood !== 'all' ||
-    selectedAmenities.length > 0;
+    selectedAmenities.length > 0 ||
+    selectedDate !== '';
 
-  // Selected top 8 key amenities for filter chips
-  const keyAmenities = [
-    'Commercial Kitchen',
-    'Stage',
-    'Wheelchair Accessible',
-    'Sound System',
-    'Projector',
-    'Parking',
-    'Wi-Fi',
-    'Terrace',
-  ];
+  const keyAmenities = React.useMemo(() => {
+    const preferred = [
+      'Air-Conditioned',
+      'Stage',
+      'Wheelchair Accessible',
+      'Sound System',
+      'Parking',
+      'Green Rooms',
+      'Exhibition',
+      'Canteen',
+    ];
+    if (availableAmenities.length === 0) return preferred;
+    return preferred.filter((p) =>
+      availableAmenities.some((a) => a.toLowerCase().includes(p.toLowerCase()))
+    );
+  }, [availableAmenities]);
 
   return (
     <div className="space-y-8">
       {/* Search & Filter Control Panel */}
       <div className="civic-card p-5 bg-white border border-[#E5DFD5]">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-center">
           {/* Main Keyword Search */}
-          <div className="md:col-span-5 relative">
+          <div className="md:col-span-4 relative">
             <Search className="w-4 h-4 text-[#8A8275] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by hall name, feature, or district..."
+              placeholder="Search hall name, feature, or location..."
+              aria-label="Search halls by keyword"
               className="w-full pl-9 pr-4 py-2 text-sm rounded-md border border-[#E5DFD5] bg-[#FBF9F5] placeholder:text-[#8A8275] focus:ring-1 focus:ring-[#1A3B2B] focus:border-[#1A3B2B]"
             />
           </div>
 
+          {/* Date Availability Filter */}
+          <div className="md:col-span-3 relative">
+            <Calendar className="w-4 h-4 text-[#8A8275] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => handleDateChange(e.target.value)}
+              aria-label="Filter by available event date"
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-[#E5DFD5] bg-[#FBF9F5] text-[#1C1917] focus:ring-1 focus:ring-[#1A3B2B] focus:border-[#1A3B2B]"
+            />
+          </div>
+
           {/* Capacity Dropdown */}
-          <div className="md:col-span-3">
+          <div className="md:col-span-2">
             <select
               value={capacityRange}
               onChange={(e) => setCapacityRange(e.target.value)}
               className="w-full px-3 py-2 text-sm rounded-md border border-[#E5DFD5] bg-[#FBF9F5] text-[#1C1917] focus:ring-1 focus:ring-[#1A3B2B] focus:border-[#1A3B2B]"
               aria-label="Filter by guest capacity"
             >
-              <option value="all">Any Guest Capacity</option>
-              <option value="small">Small (Up to 70 guests)</option>
-              <option value="medium">Medium (70 – 180 guests)</option>
-              <option value="large">Large (180+ guests)</option>
+              <option value="all">Any Capacity</option>
+              <option value="small">Up to 150</option>
+              <option value="medium">151 – 600</option>
+              <option value="large">600+ guests</option>
             </select>
           </div>
 
-          {/* Neighborhood Dropdown */}
-          <div className="md:col-span-3">
+          {/* City / Location Dropdown */}
+          <div className="md:col-span-2">
             <select
               value={selectedNeighborhood}
               onChange={(e) => setSelectedNeighborhood(e.target.value)}
               className="w-full px-3 py-2 text-sm rounded-md border border-[#E5DFD5] bg-[#FBF9F5] text-[#1C1917] focus:ring-1 focus:ring-[#1A3B2B] focus:border-[#1A3B2B]"
-              aria-label="Filter by neighborhood"
+              aria-label="Filter by city or district"
             >
-              <option value="all">All Neighborhoods & Sectors</option>
+              <option value="all">All Cities</option>
               {availableNeighborhoods.map((n) => (
                 <option key={n} value={n}>
                   {n}
@@ -174,6 +235,21 @@ export function HallFilterView({
           </div>
         </div>
 
+        {/* Date Filter Status */}
+        {isCheckingDate && (
+          <div className="mt-3 text-xs text-[#615B52] flex items-center gap-2">
+            <div className="w-3.5 h-3.5 border-2 border-[#1A3B2B] border-t-transparent rounded-full animate-spin" />
+            <span>Checking real-time hall availability for {selectedDate}...</span>
+          </div>
+        )}
+
+        {dateError && (
+          <div className="mt-3 p-2.5 rounded bg-[#FEF3F2] border border-[#FECDCA] text-xs text-[#B42318] flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{dateError}</span>
+          </div>
+        )}
+
         {/* Amenity Filter Chips */}
         <div className="mt-4 pt-3.5 border-t border-[#E5DFD5]">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -188,6 +264,7 @@ export function HallFilterView({
                     key={amenity}
                     type="button"
                     onClick={() => toggleAmenity(amenity)}
+                    aria-pressed={isSelected}
                     className={`inline-flex items-center text-xs px-2.5 py-1 rounded-full border transition-colors ${
                       isSelected
                         ? 'bg-[#1A3B2B] text-white border-[#1A3B2B] font-medium'
@@ -208,7 +285,10 @@ export function HallFilterView({
       <div className="flex items-center justify-between text-xs text-[#615B52] px-1">
         <span>
           Showing <strong className="text-[#1C1917]">{filteredHalls.length}</strong> of{' '}
-          <strong>{initialHalls.length}</strong> municipal community facilities
+          <strong>{initialHalls.length}</strong> active community facilities
+          {selectedDate && !dateError && dateAvailability && (
+            <span> with open slots on <strong>{selectedDate}</strong></span>
+          )}
         </span>
         {hasActiveFilters && (
           <button
@@ -225,11 +305,21 @@ export function HallFilterView({
       {filteredHalls.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredHalls.map((hall) => (
-            <HallCard key={hall.id} hall={hall} />
+            <HallCard
+              key={hall.id}
+              hall={hall}
+              dateContext={
+                selectedDate && dateAvailability?.[hall.id]
+                  ? {
+                      date: selectedDate,
+                      availableHours: dateAvailability[hall.id].availableHours,
+                    }
+                  : undefined
+              }
+            />
           ))}
         </div>
       ) : (
-        /* Empty State */
         <div className="civic-card p-12 text-center bg-white border border-[#E5DFD5]">
           <div className="w-12 h-12 rounded-full bg-[#F3EFE8] text-[#8A8275] flex items-center justify-center mx-auto mb-4">
             <Building2 className="w-6 h-6" />
@@ -238,10 +328,10 @@ export function HallFilterView({
             No Community Halls Match Your Filter Criteria
           </h3>
           <p className="text-xs text-[#615B52] max-w-sm mx-auto mb-6 leading-relaxed">
-            Try adjusting your guest capacity, removing specific amenity requirements, or broadening your district search.
+            Try choosing another date, adjusting guest capacity, or broadening your city and amenity filters.
           </p>
           <Button variant="outline" size="sm" onClick={resetFilters} className="text-xs">
-            Reset Filters & View All Halls
+            Reset Filters &amp; View All Halls
           </Button>
         </div>
       )}

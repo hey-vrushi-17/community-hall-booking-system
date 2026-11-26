@@ -14,13 +14,12 @@ export default async function AdminHallsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Title & Scope */}
       <div className="border-b border-[#E5DFD5] pb-4">
         <h1 className="text-2xl sm:text-3xl font-bold text-[#1C1917] tracking-tight">
-          Facility Halls & Inventory
+          Facility Halls &amp; Inventory
         </h1>
         <p className="text-xs sm:text-sm text-[#615B52] mt-1">
-          Catalog municipal civic spaces, adjust operational hours, update amenities, and manage facility availability status.
+          Catalog municipal civic spaces, adjust operational hours, update amenities, and manage facility activation status.
         </p>
       </div>
 

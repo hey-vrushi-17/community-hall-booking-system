@@ -1,14 +1,13 @@
 import { checkSlotAvailability, getDaySchedule } from '../src/lib/services/availability-service';
 import {
-  bookingStore,
-  getBookingsForHall,
-  getMaintenanceForHall,
   createBookingRequest,
+  cancelOwnPendingBooking,
   approveBookingWithConcurrencyCheck,
   rejectBooking,
   getAdminDashboardSummary,
   createMaintenanceWindow,
   cancelMaintenanceWindow,
+  getAuditEvents,
 } from '../src/lib/services/booking-store';
 import {
   getAllHalls,
@@ -18,6 +17,8 @@ import {
   archiveHall,
 } from '../src/lib/services/hall-service';
 import { SAMPLE_HALLS } from '../src/lib/data/sample-halls';
+import { zonedLocalToUtcIso } from '../src/lib/utils/timezone';
+import { validateBookingBusinessRules } from '../src/lib/validation/booking-schema';
 
 async function runVerification() {
   console.log('=== RUNNING CIVICSPACES SYSTEM VERIFICATION ===\n');
@@ -35,15 +36,17 @@ async function runVerification() {
     }
   }
 
-  // 1. Verify Sample Halls data
-  assert(SAMPLE_HALLS.length === 6, 'Should have exactly 6 initial civic facilities');
-  const oakridge = SAMPLE_HALLS.find((h) => h.id === 'hall-oakridge-01');
-  assert(oakridge && oakridge.capacity === 350, 'Oakridge Civic Hall capacity should be 350');
+  // 1. Verify Sample Community Halls catalog
+  assert(SAMPLE_HALLS.length === 15, 'Should have 15 community halls in development sample catalog');
+  const babarRoad = SAMPLE_HALLS.find((h) => h.id === 'hall-ndmc-babar-01');
+  assert(
+    babarRoad && babarRoad.capacity === 225 && babarRoad.address.includes('110001'),
+    'Babar Road NDMC Community Centre capacity should be 225 with Delhi 110001 PIN'
+  );
 
   // 2. Test Availability Engine: Approved Booking Conflict
-  // Oakridge has an APPROVED booking on 2026-11-20 from 14:00 to 21:00 UTC
   const slotConflictCheck = await checkSlotAvailability(
-    'hall-oakridge-01',
+    'hall-ndmc-babar-01',
     new Date('2026-11-20T15:00:00Z'),
     new Date('2026-11-20T18:00:00Z')
   );
@@ -57,9 +60,8 @@ async function runVerification() {
   );
 
   // 3. Test Availability Engine: Maintenance Window Conflict
-  // Oakridge has MAINTENANCE on 2026-11-19 from 07:00 to 13:00 UTC
   const maintConflictCheck = await checkSlotAvailability(
-    'hall-oakridge-01',
+    'hall-ndmc-babar-01',
     new Date('2026-11-19T08:00:00Z'),
     new Date('2026-11-19T11:00:00Z')
   );
@@ -69,9 +71,8 @@ async function runVerification() {
   );
 
   // 4. Test Core Domain Rule: Pending Requests DO NOT block availability
-  // Oakridge has a PENDING request on 2026-11-28 from 10:00 to 18:00 UTC
   const pendingCheck = await checkSlotAvailability(
-    'hall-oakridge-01',
+    'hall-ndmc-babar-01',
     new Date('2026-11-28T11:00:00Z'),
     new Date('2026-11-28T14:00:00Z')
   );
@@ -82,7 +83,7 @@ async function runVerification() {
 
   // 5. Test Open Available Slot
   const openSlotCheck = await checkSlotAvailability(
-    'hall-oakridge-01',
+    'hall-ndmc-babar-01',
     new Date('2026-11-29T10:00:00Z'),
     new Date('2026-11-29T14:00:00Z')
   );
@@ -91,37 +92,81 @@ async function runVerification() {
     'Completely unreserved slot must report as available'
   );
 
-  // 6. Test Booking Request Creation
-  const newRequest = await createBookingRequest({
-    hallId: 'hall-riverside-02',
-    requesterName: 'Marcus Aurelius',
-    requesterEmail: 'marcus@civic.example',
-    requesterPhone: '(555) 019-9999',
-    requesterOrg: 'Philosophy Society',
-    eventName: 'Stoic Ethics Community Forum',
-    eventType: 'Community Meeting',
-    expectedAttendees: 60,
-    bookingDate: '2026-12-05',
-    startTime: '10:00',
-    endTime: '14:00',
-    specialRequests: 'Mobile display monitors requested',
-    agreeToTerms: true,
-  });
+  // 6. Test Timezone Conversion (IST Asia/Kolkata -> UTC) & Business Rule Validation
+  const istConverted = zonedLocalToUtcIso('2026-12-10', '13:00', 'Asia/Kolkata');
+  assert(
+    istConverted === '2026-12-10T07:30:00.000Z',
+    'Local 13:00 Asia/Kolkata converts accurately to 07:30:00Z UTC'
+  );
+
+  const overCapacityViolations = validateBookingBusinessRules(
+    {
+      hallId: 'hall-blr-sevasadan-05',
+      requesterName: 'Test Organizer',
+      requesterEmail: 'test@example.org',
+      requesterPhone: '+91 98110 11111',
+      eventName: 'Oversized Assembly',
+      eventType: 'Community Meeting',
+      expectedAttendees: 999,
+      bookingDate: '2026-12-10',
+      startTime: '10:00',
+      endTime: '12:00',
+      agreeToTerms: true,
+    },
+    SAMPLE_HALLS.find((h) => h.id === 'hall-blr-sevasadan-05') || null,
+    { allowPastDatesForTests: true }
+  );
+  assert(
+    overCapacityViolations.some((v) => v.field === 'expectedAttendees'),
+    'Business rule validation rejects attendance exceeding hall capacity'
+  );
+
+  // 7. Test Booking Request Creation
+  const newRequest = await createBookingRequest(
+    {
+      hallId: 'hall-ihc-stein-02',
+      requesterName: 'Rohan Deshpande',
+      requesterEmail: 'rohan@civic.example',
+      requesterPhone: '+91 98110 99999',
+      requesterOrg: 'Delhi Urban Design Forum',
+      eventName: 'Sustainable Cities Public Dialogue',
+      eventType: 'Community Meeting',
+      expectedAttendees: 180,
+      bookingDate: '2026-12-05',
+      startTime: '10:00',
+      endTime: '14:00',
+      specialRequests: 'Interpretation booths requested',
+      agreeToTerms: true,
+    },
+    'user-123'
+  );
 
   assert(newRequest.id && newRequest.id.startsWith('bkg-'), 'New booking ID should be generated');
   assert(newRequest.status === 'PENDING', 'New booking request must strictly be in PENDING status');
   assert(newRequest.referenceNumber.startsWith('REQ-'), 'Reference number should follow format REQ-YYYY-XXXX');
 
-  // 7. Test Concurrency & Overlap Protection on Approval:
-  // Step A: Create two overlapping pending requests for the same slot
+  // 8. Test Owner Pending Cancellation Rules
+  const wrongOwnerCancel = await cancelOwnPendingBooking(newRequest.id, 'other-user', 'other@example.org');
+  assert(
+    wrongOwnerCancel.success === false && wrongOwnerCancel.statusCode === 403,
+    'Non-owner cannot cancel another user booking request'
+  );
+
+  const ownerCancel = await cancelOwnPendingBooking(newRequest.id, 'user-123', 'rohan@civic.example', 'Schedule moved');
+  assert(
+    ownerCancel.success === true && ownerCancel.booking?.status === 'CANCELLED',
+    'Authenticated owner can cancel their own PENDING booking request'
+  );
+
+  // 9. Test Concurrency & Overlap Protection on Approval
   const req1 = await createBookingRequest({
-    hallId: 'hall-cedar-grove-04',
-    requesterName: 'Alice Walker',
-    requesterEmail: 'alice@civic.example',
-    requesterPhone: '(555) 123-4567',
-    eventName: 'Art Exhibition Setup',
-    eventType: 'Exhibition',
-    expectedAttendees: 40,
+    hallId: 'hall-blr-sevasadan-05',
+    requesterName: 'Kavita Rao',
+    requesterEmail: 'kavita@civic.example',
+    requesterPhone: '+91 98450 12345',
+    eventName: 'Carnatic Vocal Concert',
+    eventType: 'Performance / Rehearsal',
+    expectedAttendees: 120,
     bookingDate: '2026-12-10',
     startTime: '13:00',
     endTime: '17:00',
@@ -129,31 +174,29 @@ async function runVerification() {
   });
 
   const req2 = await createBookingRequest({
-    hallId: 'hall-cedar-grove-04',
-    requesterName: 'Bob Dylan',
-    requesterEmail: 'bob@civic.example',
-    requesterPhone: '(555) 765-4321',
-    eventName: 'Folk Music Rehearsal',
-    eventType: 'Performance',
-    expectedAttendees: 30,
+    hallId: 'hall-blr-sevasadan-05',
+    requesterName: 'Suresh Menon',
+    requesterEmail: 'suresh@civic.example',
+    requesterPhone: '+91 98451 54321',
+    eventName: 'Classical Dance Rehearsal',
+    eventType: 'Performance / Rehearsal',
+    expectedAttendees: 80,
     bookingDate: '2026-12-10',
     startTime: '14:00',
-    endTime: '16:00', // Overlaps req1!
+    endTime: '16:00',
     agreeToTerms: true,
   });
 
-  // Step B: Approve req1 -> Should succeed
   const approveReq1Result = await approveBookingWithConcurrencyCheck(
     req1.id,
     'admin@civic.example',
     'Approved - space available'
   );
   assert(
-    approveReq1Result.success === true && approveReq1Result.booking.status === 'APPROVED',
+    approveReq1Result.success === true && approveReq1Result.booking?.status === 'APPROVED',
     'First pending request should approve successfully'
   );
 
-  // Step C: Attempt to approve req2 -> MUST fail with conflict error!
   const approveReq2Result = await approveBookingWithConcurrencyCheck(
     req2.id,
     'admin@civic.example',
@@ -168,19 +211,19 @@ async function runVerification() {
     'Rejection payload must specify the conflicting approved booking'
   );
 
-  // 8. Availability check reflects the newly approved booking
-  const cedarAvailability = await checkSlotAvailability(
-    'hall-cedar-grove-04',
-    new Date('2026-12-10T14:30:00Z'),
-    new Date('2026-12-10T15:30:00Z')
+  // 10. Availability check reflects the newly approved booking (13:00-17:00 IST = 07:30-11:30Z)
+  const sevaSadanAvailability = await checkSlotAvailability(
+    'hall-blr-sevasadan-05',
+    new Date('2026-12-10T08:30:00Z'),
+    new Date('2026-12-10T09:30:00Z')
   );
   assert(
-    cedarAvailability.isAvailable === false,
+    sevaSadanAvailability.isAvailable === false,
     'Slot approved during test must now be unavailable for public booking'
   );
 
-  // 9. Day Schedule breakdown verification
-  const daySchedule = await getDaySchedule('hall-oakridge-01', '2026-11-20');
+  // 11. Day Schedule breakdown verification
+  const daySchedule = await getDaySchedule('hall-ndmc-babar-01', '2026-11-20');
   assert(
     daySchedule.length > 0,
     'Day schedule breakdown should return hourly slots for operating hours'
@@ -191,22 +234,22 @@ async function runVerification() {
     'Day schedule should indicate confirmed booked slots'
   );
 
-  // 10. Administrator Experience: Rejecting a booking request
+  // 12. Administrator Experience: Rejecting a booking request
   const rejectedResult = await rejectBooking(
     req2.id,
     'admin@civic.example',
     'Cannot accommodate due to overlapping confirmed booking'
   );
   assert(
-    rejectedResult.success === true && rejectedResult.booking.status === 'REJECTED',
+    rejectedResult.success === true && rejectedResult.booking?.status === 'REJECTED',
     'Administrator must be able to reject a request with an explicit reason'
   );
   assert(
-    rejectedResult.booking.decisionNotes.includes('overlapping'),
+    rejectedResult.booking?.decisionNotes?.includes('overlapping'),
     'Rejection decision notes must be recorded'
   );
 
-  // 11. Administrator Experience: Dashboard Summary & Hall Utilization
+  // 13. Administrator Experience: Dashboard Summary & Hall Utilization
   const dashboardSummary = await getAdminDashboardSummary();
   assert(
     dashboardSummary.pendingCount >= 0,
@@ -217,37 +260,37 @@ async function runVerification() {
     'Admin dashboard summary must calculate approved booking count'
   );
   assert(
-    dashboardSummary.hallUtilization.length >= 6,
-    'Admin dashboard summary must calculate utilization metrics for all civic facilities'
+    dashboardSummary.hallUtilization.length >= 15,
+    'Admin dashboard summary must calculate utilization metrics for all facilities'
   );
   assert(
     typeof dashboardSummary.hallUtilization[0].utilizationRate === 'number',
     'Hall utilization percentage must be computed numerically'
   );
 
-  // 12. Hall Management: Create, Update, and Archive
-  const createdFacility = await createHall({
-    name: 'Harborview Cultural Pavilion',
-    tagline: 'Waterfront hall with maritime architecture',
-    description: 'Breathtaking venue ideal for large civic receptions and coastal festivals.',
-    capacity: 220,
-    hourlyRate: 85,
-    location: 'Harbor District',
-    address: '500 Ocean Boulevard',
-    neighborhood: 'Waterfront District',
-    amenities: ['Waterfront Deck', 'Audio System', 'Catering Kitchen'],
-    images: [{ url: 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205', alt: 'Harborview Pavilion' }],
-    operatingHours: { open: '08:00', close: '23:00', days: 'Monday - Sunday' },
-  });
-  assert(createdFacility.id && createdFacility.slug === 'harborview-cultural-pavilion', 'Hall slug and ID generated');
+  // 14. Hall Management: Create, Update, Archive & Audit Recording
+  const createdFacility = await createHall(
+    {
+      name: 'Nehru Memorial Town Hall Kochi',
+      tagline: 'Heritage municipal town hall in Mattancherry',
+      description: 'Historic public gathering venue managed by Kochi Municipal Corporation.',
+      capacity: 1000,
+      hourlyRate: 1500,
+      location: 'Mattancherry, Kochi',
+      address: 'Town Hall Rd, Koovapadam, Mattancherry, Kochi, Kerala 682002',
+      neighborhood: 'Kochi',
+      amenities: ['Main Hall', 'Audio System', 'Dining Area'],
+      images: [{ url: 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205', alt: 'Nehru Memorial Town Hall' }],
+      operatingHours: { open: '08:00', close: '22:00', days: 'Monday - Sunday' },
+    },
+    { email: 'admin@civic.example' }
+  );
+  assert(createdFacility.id && createdFacility.slug === 'nehru-memorial-town-hall-kochi', 'Hall slug and ID generated');
 
-  const updatedFacility = await updateHall(createdFacility.id, {
-    capacity: 250,
-  });
-  assert(updatedFacility && updatedFacility.capacity === 250, 'Facility capacity updated to 250');
+  const updatedFacility = await updateHall(createdFacility.id, { capacity: 1100 }, { email: 'admin@civic.example' });
+  assert(updatedFacility && updatedFacility.capacity === 1100, 'Facility capacity updated to 1100');
 
-  // Archival test
-  const archivedFacility = await archiveHall(createdFacility.id, true);
+  const archivedFacility = await archiveHall(createdFacility.id, true, { email: 'admin@civic.example' });
   assert(archivedFacility && archivedFacility.isActive === false, 'Archiving facility sets isActive to false');
 
   const publicHallsAfterArchive = await getAllHalls();
@@ -262,49 +305,61 @@ async function runVerification() {
     'Archived facility must remain visible in administrative management view'
   );
 
-  // 13. Maintenance Scheduling: Conflict Check against Approved Booking
-  // Oakridge has an APPROVED booking on 2026-11-20 from 14:00 to 21:00 UTC
-  const conflictMaintenance = await createMaintenanceWindow({
-    hallId: 'hall-oakridge-01',
-    title: 'Emergency Roof Tile Replacement',
-    reason: 'Repair tile damage',
-    startTime: '2026-11-20T16:00:00Z',
-    endTime: '2026-11-20T19:00:00Z',
-  });
+  // 15. Maintenance Scheduling & Cancellation
+  const conflictMaintenance = await createMaintenanceWindow(
+    {
+      hallId: 'hall-ndmc-babar-01',
+      title: 'Emergency Electrical Panel Upgrade',
+      reason: 'Upgrade main breaker',
+      startTime: '2026-11-20T16:00:00Z',
+      endTime: '2026-11-20T19:00:00Z',
+    },
+    { email: 'admin@civic.example' }
+  );
   assert(
-    conflictMaintenance.success === false && conflictMaintenance.conflicts.length > 0,
+    conflictMaintenance.success === false && (conflictMaintenance.conflicts?.length || 0) > 0,
     'Maintenance window overlapping an APPROVED booking must be rejected with conflict details'
   );
 
-  // 14. Maintenance Scheduling: Non-conflicting window and Cancellation restoration
-  const validMaintenance = await createMaintenanceWindow({
-    hallId: 'hall-oakridge-01',
-    title: 'Early Morning Fire Alarm Testing',
-    reason: 'Annual sensor calibration',
-    startTime: '2026-12-15T05:00:00Z',
-    endTime: '2026-12-15T07:30:00Z',
-  });
+  const validMaintenance = await createMaintenanceWindow(
+    {
+      hallId: 'hall-ndmc-babar-01',
+      title: 'Early Morning Fire Alarm Testing',
+      reason: 'Annual sensor calibration',
+      startTime: '2026-12-15T05:00:00Z',
+      endTime: '2026-12-15T07:30:00Z',
+    },
+    { email: 'admin@civic.example' }
+  );
   assert(validMaintenance.success === true, 'Non-conflicting maintenance window must be scheduled successfully');
 
-  // Verify it blocks slot availability
   const checkMaintSlot = await checkSlotAvailability(
-    'hall-oakridge-01',
+    'hall-ndmc-babar-01',
     new Date('2026-12-15T06:00:00Z'),
     new Date('2026-12-15T07:00:00Z')
   );
   assert(checkMaintSlot.isAvailable === false, 'Scheduled maintenance window blocks slot availability');
 
-  // Cancel the maintenance window
-  const cancelResult = await cancelMaintenanceWindow(validMaintenance.maintenance.id, 'Calibration finished ahead of schedule');
-  assert(cancelResult.success === true && cancelResult.maintenance.status === 'CANCELLED', 'Maintenance window marked CANCELLED');
+  const cancelResult = await cancelMaintenanceWindow(
+    validMaintenance.maintenance.id,
+    'Calibration finished ahead of schedule',
+    { email: 'admin@civic.example' }
+  );
+  assert(cancelResult.success === true && cancelResult.maintenance?.status === 'CANCELLED', 'Maintenance window marked CANCELLED');
 
-  // Verify availability is restored
   const checkRestoredSlot = await checkSlotAvailability(
-    'hall-oakridge-01',
+    'hall-ndmc-babar-01',
     new Date('2026-12-15T06:00:00Z'),
     new Date('2026-12-15T07:00:00Z')
   );
   assert(checkRestoredSlot.isAvailable === true, 'Cancelling maintenance window immediately unblocks slot availability');
+
+  // 16. Audit Log verification
+  const hallAuditEvents = await getAuditEvents({ entityType: 'Hall' });
+  assert(
+    hallAuditEvents.some((e) => e.action === 'ARCHIVE_HALL' && e.entityId === createdFacility.id),
+    'Audit events record hall administrative changes with filtering support'
+  );
 
   console.log(`\n========================================`);
   console.log(`VERIFICATION SUMMARY: ${passed} passed, ${failed} failed`);

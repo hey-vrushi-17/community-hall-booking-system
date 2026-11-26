@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { getAdminSession } from '@/lib/auth/admin-auth';
+import { getAdminSession, isDemoAdminEnabled } from '@/lib/auth/admin-auth';
 import { AdminLoginClient } from './admin-login-client';
 
 export const metadata: Metadata = {
@@ -19,7 +19,7 @@ export default async function AdminLoginPage() {
   return (
     <div className="py-12 md:py-20 bg-[#FBF9F5] min-h-[calc(100vh-140px)] flex items-center justify-center">
       <div className="civic-container w-full">
-        <AdminLoginClient />
+        <AdminLoginClient demoEnabled={isDemoAdminEnabled()} />
       </div>
     </div>
   );

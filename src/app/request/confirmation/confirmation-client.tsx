@@ -6,22 +6,16 @@ import {
   Clock,
   CheckCircle2,
   Copy,
-  ExternalLink,
-  MapPin,
   Calendar,
   Users,
-  FileText,
-  Mail,
-  Phone,
-  Building,
-  ShieldAlert,
-  ArrowRight,
   Search,
+  XCircle,
 } from 'lucide-react';
 import { Booking } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
+import { formatDateInAppTz, formatTimeInAppTz, getTimezoneLabel } from '@/lib/utils/timezone';
 
 interface ConfirmationClientProps {
   initialBooking: Booking | null;
@@ -34,6 +28,7 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
   const [lookupRef, setLookupRef] = React.useState(refParam || '');
   const [isLoading, setIsLoading] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const tzLabel = getTimezoneLabel();
 
   const copyRefToClipboard = () => {
     if (booking?.referenceNumber) {
@@ -66,35 +61,6 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
     }
   };
 
-  const formatDate = (isoString?: string) => {
-    if (!isoString) return '';
-    try {
-      const d = new Date(isoString);
-      return d.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
-    } catch {
-      return isoString;
-    }
-  };
-
-  const formatTime = (isoString?: string) => {
-    if (!isoString) return '';
-    try {
-      const d = new Date(isoString);
-      return d.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'UTC',
-      });
-    } catch {
-      return isoString;
-    }
-  };
-
   if (!booking) {
     return (
       <div className="max-w-2xl mx-auto space-y-6">
@@ -113,6 +79,7 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
               value={lookupRef}
               onChange={(e) => setLookupRef(e.target.value)}
               placeholder="e.g. REQ-2026-1042"
+              aria-label="Booking Reference Number"
               className="flex-1 text-sm font-mono px-3.5 py-2.5 rounded-md border border-[#E5DFD5] uppercase focus:ring-1 focus:ring-[#1A3B2B]"
             />
             <Button type="submit" variant="primary" disabled={isLoading}>
@@ -138,23 +105,26 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
-      {/* Official Status Header */}
       <div className="civic-card p-6 sm:p-8 bg-white border border-[#E5DFD5] shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-[#E5DFD5] pb-6">
           <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#FFF8EB] border border-[#F5D998] text-[#8C5800] text-xs font-semibold">
-              <Clock className="w-3.5 h-3.5 animate-pulse" />
-              <span>REQUEST STATUS: PENDING MUNICIPAL REVIEW</span>
+            <div className="flex items-center gap-2">
+              <Badge status={booking.status} />
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold text-[#1C1917] tracking-tight pt-1">
-              Reservation Request Received
+              {booking.status === 'APPROVED'
+                ? 'Booking Request Approved'
+                : booking.status === 'REJECTED'
+                ? 'Booking Request Declined'
+                : booking.status === 'CANCELLED'
+                ? 'Booking Request Cancelled'
+                : 'Booking Request Received'}
             </h1>
             <p className="text-xs sm:text-sm text-[#615B52]">
               Submitted for <span className="font-semibold text-[#1C1917]">{booking.hallName || 'Community Facility'}</span>
             </p>
           </div>
 
-          {/* Reference Number Badge */}
           <div className="bg-[#FBF9F5] p-3.5 rounded-lg border border-[#E5DFD5] self-start shrink-0">
             <span className="block text-[11px] font-semibold text-[#8A8275] uppercase tracking-wider">
               Reference Code
@@ -167,6 +137,7 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
                 type="button"
                 onClick={copyRefToClipboard}
                 title="Copy Reference Code"
+                aria-label="Copy Reference Code"
                 className="p-1 rounded text-[#8A8275] hover:text-[#1A3B2B] hover:bg-[#EBF3EE] transition-colors"
               >
                 {copied ? (
@@ -184,19 +155,36 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
           </div>
         </div>
 
-        {/* Civic Transparency Notice */}
-        <Alert variant="warning" className="text-xs leading-relaxed">
-          <strong>Important Municipal Notice:</strong> This request has been safely recorded in the queue, but it is <strong>not an approved booking</strong>.
-          Community facilities remain available to the public until municipal administrative staff review the application, verify facility safety requirements, and formally issue an approval notice.
-        </Alert>
+        {booking.status === 'PENDING' && (
+          <Alert variant="warning" className="text-xs leading-relaxed">
+            <strong>Pending Administrative Review:</strong> Your request has been recorded in the review queue, but it is <strong>not a confirmed booking</strong>. The venue remains available until an administrator issues formal approval.
+          </Alert>
+        )}
+        {booking.status === 'APPROVED' && (
+          <Alert variant="success" className="text-xs leading-relaxed">
+            <strong>Booking Confirmed:</strong> This reservation has been approved and locked on the facility schedule.
+            {booking.decisionNotes ? ` Note: ${booking.decisionNotes}` : ''}
+          </Alert>
+        )}
+        {booking.status === 'REJECTED' && (
+          <Alert variant="error" className="text-xs leading-relaxed">
+            <strong>Request Declined:</strong> {booking.decisionNotes || 'This request could not be accommodated.'}
+          </Alert>
+        )}
+        {booking.status === 'CANCELLED' && (
+          <Alert variant="info" className="text-xs leading-relaxed">
+            <div className="flex items-center gap-1.5">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span><strong>Cancelled:</strong> {booking.decisionNotes || 'This booking request was cancelled.'}</span>
+            </div>
+          </Alert>
+        )}
 
-        {/* Detailed Breakdown */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-          {/* Schedule & Event Column */}
           <div className="space-y-4">
             <h3 className="text-xs uppercase font-bold text-[#8A8275] tracking-wider border-b border-[#E5DFD5] pb-1.5 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-[#1A3B2B]" />
-              Event & Timing Details
+              Event &amp; Timing Details
             </h3>
 
             <div className="space-y-2.5 text-xs">
@@ -212,13 +200,20 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
 
               <div>
                 <span className="text-[#8A8275] block">Requested Date:</span>
-                <span className="font-semibold text-[#1C1917]">{formatDate(booking.startTime)}</span>
+                <span className="font-semibold text-[#1C1917]">
+                  {formatDateInAppTz(booking.startTime, {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </span>
               </div>
 
               <div>
-                <span className="text-[#8A8275] block">Requested Time Slot (UTC):</span>
+                <span className="text-[#8A8275] block">Requested Time Slot ({tzLabel}):</span>
                 <span className="font-mono text-[#1C1917]">
-                  {formatTime(booking.startTime)} – {formatTime(booking.endTime)}
+                  {formatTimeInAppTz(booking.startTime)} – {formatTimeInAppTz(booking.endTime)}
                 </span>
               </div>
 
@@ -229,7 +224,6 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
             </div>
           </div>
 
-          {/* Requester Column */}
           <div className="space-y-4">
             <h3 className="text-xs uppercase font-bold text-[#8A8275] tracking-wider border-b border-[#E5DFD5] pb-1.5 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-[#1A3B2B]" />
@@ -271,39 +265,38 @@ export function ConfirmationClient({ initialBooking, refParam }: ConfirmationCli
           </div>
         </div>
 
-        {/* Process Next Steps Timeline */}
         <div className="border-t border-[#E5DFD5] pt-6 space-y-3">
-          <h3 className="text-xs uppercase font-bold text-[#8A8275] tracking-wider">
+          <h3 className="text-xs uppercase font-bold text-[#8A8275] tracking-wider flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-[#1A3B2B]" />
             What Happens Next?
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
             <div className="bg-[#FBF9F5] p-3 rounded border border-[#E5DFD5] space-y-1">
               <span className="font-bold text-[#1A3B2B] block">1. Administrative Review</span>
               <p className="text-[#615B52] text-[11px]">
-                Facility staff reviews application requirements, insurance, and capacity within 2 business days.
+                Facility staff reviews capacity compliance, schedule conflicts, and usage rules within 2 business days.
               </p>
             </div>
             <div className="bg-[#FBF9F5] p-3 rounded border border-[#E5DFD5] space-y-1">
-              <span className="font-bold text-[#1A3B2B] block">2. Status Notification</span>
+              <span className="font-bold text-[#1A3B2B] block">2. Status Updates</span>
               <p className="text-[#615B52] text-[11px]">
-                You will receive confirmation via email once the booking decision is recorded.
+                Check live status anytime using your reference code or sign in to My Requests.
               </p>
             </div>
             <div className="bg-[#FBF9F5] p-3 rounded border border-[#E5DFD5] space-y-1">
-              <span className="font-bold text-[#1A3B2B] block">3. Access Instructions</span>
+              <span className="font-bold text-[#1A3B2B] block">3. Confirmed Slot Lock</span>
               <p className="text-[#615B52] text-[11px]">
-                If approved, key pickup codes and venue check-in checklists will be provided.
+                Only after approval is the time slot locked on the public hall availability calendar.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Action Buttons */}
         <div className="border-t border-[#E5DFD5] pt-6 flex flex-wrap items-center justify-between gap-3">
           <Link href={`/track?ref=${booking.referenceNumber}`}>
             <Button variant="primary" className="gap-2 text-xs">
               <Search className="w-3.5 h-3.5" />
-              Track Status in Real-Time
+              Track Status
             </Button>
           </Link>
 

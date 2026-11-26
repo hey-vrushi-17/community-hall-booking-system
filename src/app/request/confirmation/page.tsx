@@ -2,7 +2,6 @@ import { Metadata } from 'next';
 import { Suspense } from 'react';
 import { getBookingByReference } from '@/lib/services/booking-store';
 import { ConfirmationClient } from './confirmation-client';
-import { Landmark } from 'lucide-react';
 import Link from 'next/link';
 
 export const metadata: Metadata = {

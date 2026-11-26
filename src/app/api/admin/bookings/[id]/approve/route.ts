@@ -17,7 +17,10 @@ export async function POST(
 
     const { id } = await context.params;
     const body = await request.json().catch(() => ({}));
-    const decisionNotes = body.decisionNotes || 'Approved by municipal facility administrator.';
+    const decisionNotes =
+      typeof body.decisionNotes === 'string' && body.decisionNotes.trim()
+        ? body.decisionNotes.trim()
+        : 'Approved by municipal facility administrator.';
 
     const booking = await getBookingById(id);
     if (!booking) {
@@ -27,11 +30,11 @@ export async function POST(
       );
     }
 
-    // Re-verify availability and perform atomic approval
     const result = await approveBookingWithConcurrencyCheck(
       id,
       session.user.email,
-      decisionNotes
+      decisionNotes,
+      session.user.id
     );
 
     if (!result.success) {

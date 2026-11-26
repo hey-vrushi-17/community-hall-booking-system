@@ -17,7 +17,14 @@ export async function POST(
 
     const { id } = await context.params;
     const body = await request.json().catch(() => ({}));
-    const decisionNotes = body.decisionNotes || 'Request declined by municipal facility administration.';
+    const decisionNotes = typeof body.decisionNotes === 'string' ? body.decisionNotes.trim() : '';
+
+    if (decisionNotes.length < 3) {
+      return NextResponse.json(
+        { error: 'Please provide a brief rejection reason (at least 3 characters).' },
+        { status: 422 }
+      );
+    }
 
     const booking = await getBookingById(id);
     if (!booking) {
@@ -27,7 +34,12 @@ export async function POST(
       );
     }
 
-    const result = await rejectBooking(id, session.user.email, decisionNotes);
+    const result = await rejectBooking(
+      id,
+      session.user.email,
+      decisionNotes,
+      session.user.id
+    );
 
     if (!result.success) {
       return NextResponse.json(
@@ -39,7 +51,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       booking: result.booking,
-      message: `Booking request ${booking.referenceNumber} has been rejected.`,
+      message: `Booking request ${booking.referenceNumber} has been declined.`,
     });
   } catch (err: unknown) {
     console.error('Admin rejection error:', err);

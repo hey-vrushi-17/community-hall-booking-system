@@ -5,17 +5,17 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  Clock,
   Wrench,
   CheckCircle2,
-  Building,
-  Users,
-  AlertTriangle,
-  Info,
 } from 'lucide-react';
 import { Booking, MaintenanceWindow, Hall } from '@/types';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  formatTimeInAppTz,
+  getAppTodayDateString,
+  getDatePartInAppTz,
+  getTimezoneLabel,
+} from '@/lib/utils/timezone';
 
 interface AdminCalendarClientProps {
   bookings: Booking[];
@@ -23,17 +23,27 @@ interface AdminCalendarClientProps {
   halls: Hall[];
 }
 
+function spansCalendarDay(startIso: string, endIso: string, dayStr: string): boolean {
+  const startDay = getDatePartInAppTz(startIso);
+  const endDay = getDatePartInAppTz(endIso);
+  return dayStr >= startDay && dayStr <= endDay;
+}
+
 export function AdminCalendarClient({
   bookings,
   maintenance,
   halls,
 }: AdminCalendarClientProps) {
-  // Calendar date navigation: default to November 2026 to match test fixtures & sample dataset
-  const [currentDate, setCurrentDate] = React.useState<Date>(new Date('2026-11-01T00:00:00Z'));
-  const [selectedHallId, setSelectedHallId] = React.useState<string>('ALL');
-  const [selectedDayString, setSelectedDayString] = React.useState<string>('2026-11-20');
+  const todayStr = getAppTodayDateString();
+  const [todayYear, todayMonth] = todayStr.split('-').map(Number);
 
-  // Month navigation
+  const [currentDate, setCurrentDate] = React.useState<Date>(
+    () => new Date(Date.UTC(todayYear, todayMonth - 1, 1))
+  );
+  const [selectedHallId, setSelectedHallId] = React.useState<string>('ALL');
+  const [selectedDayString, setSelectedDayString] = React.useState<string>(todayStr);
+  const tzLabel = getTimezoneLabel();
+
   const prevMonth = () => {
     setCurrentDate(new Date(Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth() - 1, 1)));
   };
@@ -42,9 +52,9 @@ export function AdminCalendarClient({
     setCurrentDate(new Date(Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth() + 1, 1)));
   };
 
-  const resetToFixtureMonth = () => {
-    setCurrentDate(new Date('2026-11-01T00:00:00Z'));
-    setSelectedDayString('2026-11-20');
+  const jumpToToday = () => {
+    setCurrentDate(new Date(Date.UTC(todayYear, todayMonth - 1, 1)));
+    setSelectedDayString(todayStr);
   };
 
   const year = currentDate.getUTCFullYear();
@@ -55,11 +65,9 @@ export function AdminCalendarClient({
     timeZone: 'UTC',
   });
 
-  // Calculate calendar days
   const firstDayOfWeek = new Date(Date.UTC(year, month, 1)).getUTCDay();
   const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
 
-  // Filter bookings and maintenance by hall if selected
   const confirmedBookings = React.useMemo(() => {
     return bookings.filter(
       (b) => b.status === 'APPROVED' && (selectedHallId === 'ALL' || b.hallId === selectedHallId)
@@ -74,37 +82,23 @@ export function AdminCalendarClient({
     );
   }, [maintenance, selectedHallId]);
 
-  // Selected day items
   const dayBookings = React.useMemo(() => {
-    return confirmedBookings.filter((b) => b.startTime.slice(0, 10) === selectedDayString);
+    return confirmedBookings.filter((b) => spansCalendarDay(b.startTime, b.endTime, selectedDayString));
   }, [confirmedBookings, selectedDayString]);
 
   const dayMaintenance = React.useMemo(() => {
-    return activeMaintenance.filter((m) => m.startTime.slice(0, 10) === selectedDayString);
+    return activeMaintenance.filter((m) => spansCalendarDay(m.startTime, m.endTime, selectedDayString));
   }, [activeMaintenance, selectedDayString]);
-
-  const formatTime = (iso: string) => {
-    try {
-      return new Date(iso).toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'UTC',
-      });
-    } catch {
-      return iso;
-    }
-  };
 
   return (
     <div className="space-y-6">
-      {/* Calendar Controls Bar */}
       <div className="civic-card p-4 bg-white border border-[#E5DFD5] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        {/* Month Navigation */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={prevMonth}
+              aria-label="Previous Month"
               title="Previous Month"
               className="p-1.5 rounded border border-[#E5DFD5] bg-[#FBF9F5] text-[#615B52] hover:text-[#1A3B2B] hover:bg-[#EBF3EE] transition-colors"
             >
@@ -113,6 +107,7 @@ export function AdminCalendarClient({
             <button
               type="button"
               onClick={nextMonth}
+              aria-label="Next Month"
               title="Next Month"
               className="p-1.5 rounded border border-[#E5DFD5] bg-[#FBF9F5] text-[#615B52] hover:text-[#1A3B2B] hover:bg-[#EBF3EE] transition-colors"
             >
@@ -128,14 +123,13 @@ export function AdminCalendarClient({
           <Button
             variant="outline"
             size="sm"
-            onClick={resetToFixtureMonth}
+            onClick={jumpToToday}
             className="text-xs text-[#615B52] py-1 h-7"
           >
-            Go to Nov 2026 (Fixtures)
+            Today
           </Button>
         </div>
 
-        {/* Legend & Hall Filter */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-3 text-[11px] font-medium text-[#615B52]">
             <div className="flex items-center gap-1.5">
@@ -151,6 +145,7 @@ export function AdminCalendarClient({
           <select
             value={selectedHallId}
             onChange={(e) => setSelectedHallId(e.target.value)}
+            aria-label="Filter calendar by facility"
             className="text-xs px-3 py-1.5 rounded-md border border-[#E5DFD5] bg-[#FBF9F5] text-[#1C1917] focus:ring-1 focus:ring-[#1A3B2B]"
           >
             <option value="ALL">All Facilities</option>
@@ -163,9 +158,7 @@ export function AdminCalendarClient({
         </div>
       </div>
 
-      {/* Grid: 7-Day Month View + Day Detail Inspector */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Month Calendar Grid (2 cols) */}
         <div className="lg:col-span-2 civic-card bg-white border border-[#E5DFD5] overflow-hidden p-4">
           <div className="grid grid-cols-7 gap-1 text-center font-bold text-[11px] text-[#8A8275] uppercase pb-2 border-b border-[#E5DFD5]">
             <div>Sun</div>
@@ -178,41 +171,45 @@ export function AdminCalendarClient({
           </div>
 
           <div className="grid grid-cols-7 gap-1 pt-2">
-            {/* Blank leading days */}
             {Array.from({ length: firstDayOfWeek }).map((_, i) => (
               <div key={`blank-${i}`} className="min-h-20 bg-[#FBF9F5]/40 rounded p-1" />
             ))}
 
-            {/* Calendar Month Days */}
             {Array.from({ length: daysInMonth }).map((_, i) => {
               const dayNum = i + 1;
               const dayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(
                 dayNum
               ).padStart(2, '0')}`;
               const isSelected = selectedDayString === dayStr;
+              const isToday = todayStr === dayStr;
 
-              // Items on this day
-              const dayEvents = confirmedBookings.filter(
-                (b) => b.startTime.slice(0, 10) === dayStr
+              const dayEvents = confirmedBookings.filter((b) =>
+                spansCalendarDay(b.startTime, b.endTime, dayStr)
               );
-              const dayMaint = activeMaintenance.filter(
-                (m) => m.startTime.slice(0, 10) === dayStr
+              const dayMaint = activeMaintenance.filter((m) =>
+                spansCalendarDay(m.startTime, m.endTime, dayStr)
               );
 
               return (
-                <div
+                <button
                   key={`day-${dayNum}`}
+                  type="button"
                   onClick={() => setSelectedDayString(dayStr)}
+                  aria-pressed={isSelected}
                   className={`min-h-22 rounded border p-1.5 transition-all cursor-pointer flex flex-col justify-between text-left ${
                     isSelected
                       ? 'border-[#1A3B2B] bg-[#EBF3EE]/60 ring-2 ring-[#1A3B2B]/20'
                       : 'border-[#E5DFD5] hover:border-[#1A3B2B]/50 bg-white'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between w-full">
                     <span
                       className={`text-xs font-bold ${
-                        isSelected ? 'text-[#1A3B2B]' : 'text-[#1C1917]'
+                        isToday
+                          ? 'bg-[#C85A32] text-white px-1.5 py-0.2 rounded-full'
+                          : isSelected
+                          ? 'text-[#1A3B2B]'
+                          : 'text-[#1C1917]'
                       }`}
                     >
                       {dayNum}
@@ -224,8 +221,7 @@ export function AdminCalendarClient({
                     )}
                   </div>
 
-                  {/* Badges / Pill Snippets */}
-                  <div className="space-y-1 mt-1">
+                  <div className="space-y-1 mt-1 w-full">
                     {dayEvents.slice(0, 2).map((ev) => (
                       <div
                         key={ev.id}
@@ -246,24 +242,23 @@ export function AdminCalendarClient({
                     ))}
                     {dayEvents.length + dayMaint.length > 3 && (
                       <div className="text-[9px] text-[#8A8275] font-semibold pl-0.5">
-                        +{dayEvents.length + dayMaint.length - 2} more
+                        +{dayEvents.length + dayMaint.length - 3} more
                       </div>
                     )}
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         </div>
 
-        {/* Day Schedule Inspector (1 col) */}
         <div className="civic-card p-5 bg-white border border-[#E5DFD5] space-y-4">
           <div className="border-b border-[#E5DFD5] pb-3 space-y-1">
             <span className="text-[11px] font-bold text-[#8A8275] uppercase tracking-wider block">
-              Daily Schedule Inspector
+              Daily Schedule Inspector ({tzLabel})
             </span>
             <h3 className="text-base font-bold text-[#1C1917]">
-              {new Date(`${selectedDayString}T00:00:00Z`).toLocaleDateString('en-US', {
+              {new Date(`${selectedDayString}T12:00:00Z`).toLocaleDateString('en-US', {
                 weekday: 'long',
                 month: 'long',
                 day: 'numeric',
@@ -272,7 +267,7 @@ export function AdminCalendarClient({
               })}
             </h3>
             <p className="text-xs text-[#615B52]">
-              Showing all confirmed events and scheduled facility maintenance for this date.
+              Showing approved events and active maintenance windows for this date.
             </p>
           </div>
 
@@ -281,12 +276,11 @@ export function AdminCalendarClient({
               <CheckCircle2 className="w-8 h-8 text-[#1A3B2B] mx-auto" />
               <p className="font-semibold text-[#1C1917]">No Confirmed Events or Closures</p>
               <p className="text-[#8A8275] max-w-xs mx-auto">
-                All operating hours are open and available for citizen booking requests.
+                Operating hours on this date have no approved reservations or maintenance blocks.
               </p>
             </div>
           ) : (
             <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-              {/* Confirmed Bookings list */}
               {dayBookings.map((b) => (
                 <div
                   key={b.id}
@@ -306,9 +300,9 @@ export function AdminCalendarClient({
                       <strong>Venue:</strong> {b.hallName}
                     </div>
                     <div>
-                      <strong>Time (UTC):</strong>{' '}
+                      <strong>Time:</strong>{' '}
                       <span className="font-mono">
-                        {formatTime(b.startTime)} – {formatTime(b.endTime)}
+                        {formatTimeInAppTz(b.startTime)} – {formatTimeInAppTz(b.endTime)}
                       </span>
                     </div>
                     <div>
@@ -318,7 +312,6 @@ export function AdminCalendarClient({
                 </div>
               ))}
 
-              {/* Maintenance list */}
               {dayMaintenance.map((m) => (
                 <div
                   key={m.id}
@@ -339,9 +332,9 @@ export function AdminCalendarClient({
                       <strong>Venue:</strong> {m.hallName}
                     </div>
                     <div>
-                      <strong>Time (UTC):</strong>{' '}
+                      <strong>Time:</strong>{' '}
                       <span className="font-mono">
-                        {formatTime(m.startTime)} – {formatTime(m.endTime)}
+                        {formatTimeInAppTz(m.startTime)} – {formatTimeInAppTz(m.endTime)}
                       </span>
                     </div>
                     <div>

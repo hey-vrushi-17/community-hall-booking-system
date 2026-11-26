@@ -1,7 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { createClient as createSupabaseJsClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
-import { getSupabaseConfig, getSupabaseServiceRoleKey, isSupabaseConfigured } from './config';
+import { getSupabaseConfig, getSupabaseServiceRoleKey, isSupabaseConfigured, rethrowNextControlFlowError } from './config';
 
 /**
  * Creates a public server-side Supabase client using the public anon key.
@@ -58,10 +58,8 @@ export async function createClient() {
         },
       },
     });
-  } catch (err: any) {
-    if (err?.digest?.startsWith?.('NEXT_') || err?.digest === 'HANGING_PROMISE_REJECTION') {
-      throw err;
-    }
+  } catch (err: unknown) {
+    rethrowNextControlFlowError(err);
     // If called outside of a request context (e.g. static generation), fallback to public client
     return createPublicClient();
   }
@@ -91,4 +89,12 @@ export function createAdminClient() {
       persistSession: false,
     },
   });
+}
+
+/**
+ * Returns the Service Role admin client when available, falling back to the
+ * request-scoped Supabase client. Used for trusted server-side route/service operations.
+ */
+export async function getTrustedServerClient() {
+  return createAdminClient() ?? (await createClient());
 }

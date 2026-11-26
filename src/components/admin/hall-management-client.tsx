@@ -1,12 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import Image from 'next/image';
 import {
   Building,
   Plus,
   Search,
-  Filter,
   Edit3,
   Archive,
   RefreshCw,
@@ -15,14 +13,12 @@ import {
   Users,
   MapPin,
   Clock,
-  DollarSign,
-  Layers,
+  IndianRupee,
   X,
   ExternalLink,
 } from 'lucide-react';
 import { Hall } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 
 interface HallManagementClientProps {
   initialHalls: Hall[];
@@ -38,28 +34,32 @@ interface HallFormData {
   address: string;
   neighborhood: string;
   amenities: string;
+  rulesAndPolicies: string;
   imageUrl: string;
   imageAlt: string;
   openTime: string;
   closeTime: string;
   operatingDays: string;
+  featured: boolean;
 }
 
 const defaultFormData: HallFormData = {
   name: '',
   tagline: '',
   description: '',
-  capacity: 100,
-  hourlyRate: 50,
-  location: 'Municipal District Campus',
-  address: '100 Civic Center Plaza',
-  neighborhood: 'Downtown Civic District',
-  amenities: 'Audio System, Projector, High-Speed Wi-Fi, Accessible Restrooms',
+  capacity: 150,
+  hourlyRate: 500,
+  location: '',
+  address: '',
+  neighborhood: '',
+  amenities: 'Audio System, Projector, Wheelchair Accessible Entry, Parking',
+  rulesAndPolicies: 'Standard municipal quiet hours apply after 10:00 PM.\nPremises must be cleared cleanly prior to handover.',
   imageUrl: 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=1200&q=80',
   imageAlt: 'Interior of community hall',
   openTime: '08:00',
   closeTime: '22:00',
-  operatingDays: 'Monday - Sunday',
+  operatingDays: 'Monday through Sunday',
+  featured: false,
 };
 
 export function HallManagementClient({ initialHalls }: HallManagementClientProps) {
@@ -67,21 +67,17 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
   const [searchQuery, setSearchQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'ALL' | 'ACTIVE' | 'ARCHIVED'>('ALL');
 
-  // Modal states
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [editingHall, setEditingHall] = React.useState<Hall | null>(null);
   const [formData, setFormData] = React.useState<HallFormData>(defaultFormData);
   const [submitting, setSubmitting] = React.useState(false);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
 
-  // Archive modal state
   const [archiveTarget, setArchiveTarget] = React.useState<Hall | null>(null);
   const [archiving, setArchiving] = React.useState(false);
 
-  // Toast banner
   const [feedback, setFeedback] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Auto-dismiss feedback
   React.useEffect(() => {
     if (feedback) {
       const timer = setTimeout(() => setFeedback(null), 6000);
@@ -89,7 +85,6 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
     }
   }, [feedback]);
 
-  // Filtered halls
   const filteredHalls = React.useMemo(() => {
     return halls.filter((h) => {
       if (statusFilter === 'ACTIVE' && !h.isActive) return false;
@@ -133,11 +128,13 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
       address: hall.address,
       neighborhood: hall.neighborhood,
       amenities: hall.amenities.join(', '),
+      rulesAndPolicies: hall.rulesAndPolicies.join('\n'),
       imageUrl: hall.images[0]?.url || '',
       imageAlt: hall.images[0]?.alt || hall.name,
       openTime: hall.operatingHours?.open || '08:00',
       closeTime: hall.operatingHours?.close || '22:00',
-      operatingDays: hall.operatingHours?.days || 'Monday - Sunday',
+      operatingDays: hall.operatingHours?.days || 'Monday through Sunday',
+      featured: Boolean(hall.featured),
     });
     setErrorMsg(null);
     setIsModalOpen(true);
@@ -154,6 +151,11 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
         .map((s) => s.trim())
         .filter(Boolean);
 
+      const rulesList = formData.rulesAndPolicies
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       const payload = {
         name: formData.name.trim(),
         tagline: formData.tagline.trim(),
@@ -164,6 +166,8 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
         address: formData.address.trim(),
         neighborhood: formData.neighborhood.trim(),
         amenities: amenitiesList,
+        rulesAndPolicies: rulesList,
+        featured: formData.featured,
         images: formData.imageUrl
           ? [{ url: formData.imageUrl.trim(), alt: formData.imageAlt.trim() || formData.name }]
           : [],
@@ -175,7 +179,6 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
       };
 
       if (editingHall) {
-        // PUT update
         const res = await fetch(`/api/admin/halls/${editingHall.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -187,7 +190,6 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
         setHalls((prev) => prev.map((h) => (h.id === editingHall.id ? data.hall : h)));
         setFeedback({ type: 'success', message: `Facility "${data.hall.name}" updated successfully.` });
       } else {
-        // POST create
         const res = await fetch('/api/admin/halls', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -213,7 +215,7 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
     if (!archiveTarget) return;
     setArchiving(true);
     try {
-      const targetArchive = archiveTarget.isActive; // if active, we are archiving it
+      const targetArchive = archiveTarget.isActive;
       const res = await fetch(`/api/admin/halls/${archiveTarget.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -226,7 +228,7 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
       setFeedback({
         type: 'success',
         message: targetArchive
-          ? `Facility "${data.hall.name}" archived. It is hidden from public searches but booking records are preserved.`
+          ? `Facility "${data.hall.name}" archived. Hidden from public searches while preserving historical records.`
           : `Facility "${data.hall.name}" restored to active public service.`,
       });
       setArchiveTarget(null);
@@ -240,7 +242,6 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
 
   return (
     <div className="space-y-6">
-      {/* Top Banner Alert */}
       {feedback && (
         <div
           className={`p-4 rounded-md border flex items-center justify-between transition-all ${
@@ -251,13 +252,14 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
         >
           <div className="flex items-center gap-2">
             {feedback.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+              <CheckCircle2 className="w-5 h-5 shrink-0" />
             ) : (
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <AlertCircle className="w-5 h-5 shrink-0" />
             )}
             <span className="text-sm font-medium">{feedback.message}</span>
           </div>
           <button
+            type="button"
             onClick={() => setFeedback(null)}
             className="text-stone-500 hover:text-stone-800 text-xs font-semibold px-2 py-1"
           >
@@ -266,7 +268,6 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
         </div>
       )}
 
-      {/* Stats Summary Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-lg border border-[#E5DFD5] shadow-xs">
           <div className="flex items-center justify-between">
@@ -321,57 +322,42 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
         </div>
       </div>
 
-      {/* Controls Bar */}
       <div className="bg-white p-4 rounded-lg border border-[#E5DFD5] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         <div className="flex flex-1 flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Search */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#989082]" />
             <input
               type="text"
-              placeholder="Search facility name, neighborhood, or amenity..."
+              placeholder="Search facility name, city, or amenity..."
+              aria-label="Search facilities"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-4 py-2 text-sm bg-[#FBF9F5] border border-[#E5DFD5] rounded-md focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
             />
           </div>
 
-          {/* Status Filter */}
           <div className="flex items-center gap-1.5 bg-[#FBF9F5] p-1 rounded-md border border-[#E5DFD5]">
-            <button
-              onClick={() => setStatusFilter('ALL')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
-                statusFilter === 'ALL'
-                  ? 'bg-white text-[#1C1917] shadow-xs'
-                  : 'text-[#615B52] hover:text-[#1C1917]'
-              }`}
-            >
-              All ({halls.length})
-            </button>
-            <button
-              onClick={() => setStatusFilter('ACTIVE')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
-                statusFilter === 'ACTIVE'
-                  ? 'bg-white text-[#1A3B2B] shadow-xs font-semibold'
-                  : 'text-[#615B52] hover:text-[#1C1917]'
-              }`}
-            >
-              Active ({activeCount})
-            </button>
-            <button
-              onClick={() => setStatusFilter('ARCHIVED')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
-                statusFilter === 'ARCHIVED'
-                  ? 'bg-white text-[#989082] shadow-xs'
-                  : 'text-[#615B52] hover:text-[#1C1917]'
-              }`}
-            >
-              Archived ({archivedCount})
-            </button>
+            {(['ALL', 'ACTIVE', 'ARCHIVED'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setStatusFilter(tab)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
+                  statusFilter === tab
+                    ? 'bg-white text-[#1A3B2B] shadow-xs font-semibold'
+                    : 'text-[#615B52] hover:text-[#1C1917]'
+                }`}
+              >
+                {tab === 'ALL'
+                  ? `All (${halls.length})`
+                  : tab === 'ACTIVE'
+                  ? `Active (${activeCount})`
+                  : `Archived (${archivedCount})`}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Action Button */}
         <Button
           onClick={openCreateModal}
           className="bg-[#1A3B2B] hover:bg-[#142e22] text-white flex items-center justify-center gap-2"
@@ -381,31 +367,22 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
         </Button>
       </div>
 
-      {/* Hall Cards Grid */}
       {filteredHalls.length === 0 ? (
         <div className="bg-white rounded-lg border border-[#E5DFD5] p-12 text-center space-y-3">
           <Building className="w-12 h-12 text-[#989082] mx-auto opacity-50" />
           <h3 className="text-base font-semibold text-[#1C1917]">No community facilities found</h3>
           <p className="text-sm text-[#615B52] max-w-md mx-auto">
             {searchQuery
-              ? `No facilities matched your search query "${searchQuery}". Try adjusting your keywords.`
+              ? `No facilities matched your search query "${searchQuery}".`
               : 'There are currently no facility records in this category.'}
           </p>
-          {searchQuery && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSearchQuery('')}
-              className="mt-2"
-            >
-              Clear Search
-            </Button>
-          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredHalls.map((hall) => {
-            const primaryImage = hall.images[0]?.url || 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=600&q=80';
+            const primaryImage =
+              hall.images[0]?.url ||
+              'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=600&q=80';
             return (
               <div
                 key={hall.id}
@@ -414,14 +391,12 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
                 }`}
               >
                 <div>
-                  {/* Image header with status badge */}
                   <div className="relative h-44 w-full bg-[#E5DFD5]">
-                    <Image
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
                       src={primaryImage}
                       alt={hall.name}
-                      fill
-                      className="object-cover"
-                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                      className="w-full h-full object-cover"
                     />
                     <div className="absolute top-3 right-3 flex items-center gap-2">
                       {hall.isActive ? (
@@ -443,7 +418,6 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
                     )}
                   </div>
 
-                  {/* Body Content */}
                   <div className="p-5 space-y-3">
                     <div>
                       <h3 className="text-lg font-bold text-[#1C1917] leading-snug">
@@ -458,29 +432,27 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
                       {hall.description}
                     </p>
 
-                    {/* Metadata specs */}
                     <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#F3F1ED] text-xs text-[#1C1917]">
                       <div className="flex items-center gap-1.5">
                         <Users className="w-3.5 h-3.5 text-[#1A3B2B]" />
                         <span>Up to <strong>{hall.capacity}</strong> guests</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <DollarSign className="w-3.5 h-3.5 text-[#18283E]" />
-                        <span><strong>${hall.hourlyRate}</strong> / hour</span>
+                        <IndianRupee className="w-3.5 h-3.5 text-[#18283E]" />
+                        <span><strong>₹{hall.hourlyRate}</strong> / hour</span>
                       </div>
                       <div className="flex items-center gap-1.5 col-span-2 text-[#615B52]">
                         <Clock className="w-3.5 h-3.5 text-[#989082]" />
                         <span>
-                          {hall.operatingHours?.open || '08:00'} - {hall.operatingHours?.close || '22:00'} ({hall.operatingHours?.days || 'Daily'})
+                          {hall.operatingHours?.open || '08:00'} – {hall.operatingHours?.close || '22:00'}
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 col-span-2 text-[#615B52] truncate">
-                        <MapPin className="w-3.5 h-3.5 text-[#989082] flex-shrink-0" />
+                        <MapPin className="w-3.5 h-3.5 text-[#989082] shrink-0" />
                         <span className="truncate">{hall.address}</span>
                       </div>
                     </div>
 
-                    {/* Amenities pills */}
                     <div className="pt-2 flex flex-wrap gap-1">
                       {hall.amenities.slice(0, 3).map((amenity, i) => (
                         <span
@@ -499,7 +471,6 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
                   </div>
                 </div>
 
-                {/* Footer Actions */}
                 <div className="p-4 border-t border-[#E5DFD5] bg-[#FBF9F5] flex items-center justify-between gap-2">
                   <a
                     href={`/halls/${hall.slug}`}
@@ -552,7 +523,6 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
         </div>
       )}
 
-      {/* Create / Edit Facility Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
           <div className="bg-white rounded-lg border border-[#E5DFD5] shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col my-8">
@@ -562,11 +532,13 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
                   {editingHall ? `Edit Facility: ${editingHall.name}` : 'Register New Community Facility'}
                 </h3>
                 <p className="text-xs text-[#615B52]">
-                  Configure capacity, operational hours, location specifications, and amenities.
+                  Configure capacity, operational hours, rules, amenities, and imagery.
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
+                aria-label="Close modal"
                 className="text-[#989082] hover:text-[#1C1917] p-1"
               >
                 <X className="w-5 h-5" />
@@ -575,7 +547,7 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
 
             {errorMsg && (
               <div className="m-5 p-3 rounded bg-[#FDF2F0] border border-[#F8C9C4] text-[#B42318] text-xs font-medium flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{errorMsg}</span>
               </div>
             )}
@@ -589,7 +561,7 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
                     required
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g. Maple Heights Community Center"
+                    placeholder="e.g. Municipal Civic Hall"
                     className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
                   />
                 </div>
@@ -600,128 +572,151 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
                     type="text"
                     value={formData.tagline}
                     onChange={(e) => setFormData({ ...formData, tagline: e.target.value })}
-                    placeholder="e.g. Versatile hall for civic assemblies"
+                    placeholder="Short subtitle"
                     className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-[#1C1917]">Description</label>
+                <label className="text-xs font-semibold text-[#1C1917]">Description *</label>
                 <textarea
                   rows={3}
+                  required
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Comprehensive overview of hall specifications, acoustics, and architectural characteristics..."
                   className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
                 />
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#1C1917]">Capacity (Guests) *</label>
+                  <label className="text-xs font-semibold text-[#1C1917]">Capacity *</label>
                   <input
                     type="number"
                     required
                     min={1}
                     value={formData.capacity}
                     onChange={(e) => setFormData({ ...formData, capacity: Number(e.target.value) })}
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#1C1917]">Hourly Rate ($) *</label>
+                  <label className="text-xs font-semibold text-[#1C1917]">Hourly Rate (₹) *</label>
                   <input
                     type="number"
                     required
                     min={0}
                     value={formData.hourlyRate}
                     onChange={(e) => setFormData({ ...formData, hourlyRate: Number(e.target.value) })}
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#1C1917]">Daily Open Time</label>
+                  <label className="text-xs font-semibold text-[#1C1917]">Open Time</label>
                   <input
                     type="time"
                     value={formData.openTime}
                     onChange={(e) => setFormData({ ...formData, openTime: e.target.value })}
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#1C1917]">Daily Close Time</label>
+                  <label className="text-xs font-semibold text-[#1C1917]">Close Time</label>
                   <input
                     type="time"
                     value={formData.closeTime}
                     onChange={(e) => setFormData({ ...formData, closeTime: e.target.value })}
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#1C1917]">Municipal Campus / Location</label>
+                  <label className="text-xs font-semibold text-[#1C1917]">Location / Area *</label>
                   <input
                     type="text"
+                    required
                     value={formData.location}
                     onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                    placeholder="e.g. Westside Community Park"
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#1C1917]">Street Address</label>
+                  <label className="text-xs font-semibold text-[#1C1917]">Street Address *</label>
                   <input
                     type="text"
+                    required
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    placeholder="e.g. 742 Evergreen Terrace"
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#1C1917]">Neighborhood</label>
+                  <label className="text-xs font-semibold text-[#1C1917]">City / District *</label>
                   <input
                     type="text"
+                    required
                     value={formData.neighborhood}
                     onChange={(e) => setFormData({ ...formData, neighborhood: e.target.value })}
-                    placeholder="e.g. Maple Heights"
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-[#1C1917]">
-                  Amenities (comma-separated list)
+                  Amenities (comma-separated)
                 </label>
                 <input
                   type="text"
                   value={formData.amenities}
                   onChange={(e) => setFormData({ ...formData, amenities: e.target.value })}
-                  placeholder="e.g. Commercial Kitchen, Audio System, Stage, Projector, ADA Accessible"
-                  className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                  className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-[#1C1917]">
-                  Primary Photography Image URL
+                  Rules &amp; Policies (one per line)
                 </label>
-                <input
-                  type="url"
-                  value={formData.imageUrl}
-                  onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                <textarea
+                  rows={2}
+                  value={formData.rulesAndPolicies}
+                  onChange={(e) => setFormData({ ...formData, rulesAndPolicies: e.target.value })}
+                  className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-[#1C1917]">
+                    Primary Image URL
+                  </label>
+                  <input
+                    type="url"
+                    value={formData.imageUrl}
+                    onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                    placeholder="https://images.unsplash.com/..."
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 pt-4 cursor-pointer text-xs font-semibold text-[#1C1917]">
+                  <input
+                    type="checkbox"
+                    checked={formData.featured}
+                    onChange={(e) => setFormData({ ...formData, featured: e.target.checked })}
+                    className="h-4 w-4 rounded border-[#CDC5B7] text-[#1A3B2B]"
+                  />
+                  <span>Feature this hall on the public landing page</span>
+                </label>
               </div>
 
               <div className="p-4 border-t border-[#E5DFD5] bg-[#FBF9F5] flex items-center justify-end gap-3 -mx-5 -mb-5 mt-6">
@@ -751,7 +746,6 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
         </div>
       )}
 
-      {/* Archive / Restore Confirmation Modal */}
       {archiveTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-lg border border-[#E5DFD5] shadow-xl w-full max-w-md p-6 space-y-4">
@@ -777,8 +771,8 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
 
             <p className="text-xs text-[#615B52] leading-relaxed">
               {archiveTarget.isActive
-                ? 'Archiving this facility hides it immediately from citizen booking search results and public listings. Existing booking reservations, approved contracts, and historical audit logs will remain intact.'
-                : 'Restoring this facility makes it active immediately. Citizens will be able to discover and submit reservation requests for this hall again.'}
+                ? 'Archiving this facility hides it immediately from public listings. Existing booking records and audit logs remain preserved.'
+                : 'Restoring this facility makes it active immediately so citizens can view and request dates again.'}
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#E5DFD5]">
@@ -801,11 +795,7 @@ export function HallManagementClient({ initialHalls }: HallManagementClientProps
                     : 'bg-[#1A3B2B] hover:bg-[#142e22] text-white'
                 }`}
               >
-                {archiving
-                  ? 'Processing...'
-                  : archiveTarget.isActive
-                  ? 'Confirm Archival'
-                  : 'Confirm Restore'}
+                {archiving ? 'Updating...' : archiveTarget.isActive ? 'Confirm Archive' : 'Restore Facility'}
               </Button>
             </div>
           </div>

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/auth/admin-auth';
 import { getHallById, updateHall, archiveHall } from '@/lib/services/hall-service';
+import { HallAdminInputSchema } from '@/lib/validation/hall-schema';
 
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   const session = await getAdminSession();
-  if (!session.isAuthenticated) {
+  if (!session.isAuthenticated || !session.user) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 403 });
   }
 
@@ -26,14 +27,28 @@ export async function PUT(
 ) {
   try {
     const session = await getAdminSession();
-    if (!session.isAuthenticated) {
+    if (!session.isAuthenticated || !session.user) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 403 });
     }
 
     const { id } = await context.params;
     const body = await request.json();
+    const parsed = HallAdminInputSchema.partial().safeParse(body);
 
-    const updated = await updateHall(id, body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: parsed.error.issues[0]?.message || 'Invalid hall update payload.',
+          issues: parsed.error.issues,
+        },
+        { status: 422 }
+      );
+    }
+
+    const updated = await updateHall(id, parsed.data, {
+      id: session.user.id,
+      email: session.user.email,
+    });
     if (!updated) {
       return NextResponse.json({ error: 'Facility not found.' }, { status: 404 });
     }
@@ -55,7 +70,7 @@ export async function PATCH(
 ) {
   try {
     const session = await getAdminSession();
-    if (!session.isAuthenticated) {
+    if (!session.isAuthenticated || !session.user) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 403 });
     }
 
@@ -63,7 +78,10 @@ export async function PATCH(
     const body = await request.json();
     const shouldArchive = Boolean(body.archive);
 
-    const updated = await archiveHall(id, shouldArchive);
+    const updated = await archiveHall(id, shouldArchive, {
+      id: session.user.id,
+      email: session.user.email,
+    });
     if (!updated) {
       return NextResponse.json({ error: 'Facility not found.' }, { status: 404 });
     }

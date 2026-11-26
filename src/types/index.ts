@@ -81,9 +81,10 @@ export interface MaintenanceWindow {
   hallName?: string;
   title: string;
   reason: string;
-  startTime: string; // ISO 8601
-  endTime: string;   // ISO 8601
+  startTime: string; // ISO 8601 UTC
+  endTime: string;   // ISO 8601 UTC
   status: MaintenanceStatus;
+  createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -93,7 +94,7 @@ export interface AuditEvent {
   actorId?: string | null;
   actorEmail: string;
   action: string;
-  entityType: 'Booking' | 'Hall' | 'MaintenanceWindow';
+  entityType: 'Booking' | 'Hall' | 'MaintenanceWindow' | 'Profile';
   entityId: string;
   summary: string;
   metadata?: Record<string, unknown>;

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Landmark, Menu, X, CalendarCheck, Search, ShieldCheck } from 'lucide-react';
+import { Landmark, Menu, X, Search, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function CivicHeader() {

@@ -1,5 +1,4 @@
-import { Hall, Booking, MaintenanceWindow, BookingStatus, MaintenanceStatus, Role } from '@/types';
-import { BookingFormData } from '@/lib/validation/booking-schema';
+import { Hall, Booking, MaintenanceWindow, BookingStatus, MaintenanceStatus, Role, AuditEvent } from '@/types';
 
 export interface DatabaseHallRow {
   id: string;
@@ -51,7 +50,6 @@ export interface DatabaseBookingRow {
   decision_notes: string | null;
   created_at: string;
   updated_at: string;
-  // Joined relations
   halls?: {
     name: string;
   } | null;
@@ -65,6 +63,7 @@ export interface DatabaseMaintenanceRow {
   start_time: string;
   end_time: string;
   status: MaintenanceStatus;
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
   halls?: {
@@ -82,9 +81,18 @@ export interface DatabaseProfileRow {
   updated_at: string;
 }
 
-/**
- * Transform database snake_case row into client-friendly Hall entity
- */
+export interface DatabaseAuditEventRow {
+  id: string;
+  actor_id: string | null;
+  actor_email: string;
+  action: string;
+  entity_type: AuditEvent['entityType'];
+  entity_id: string;
+  summary: string;
+  metadata: Record<string, unknown> | null;
+  timestamp: string;
+}
+
 export function mapHallFromDb(row: DatabaseHallRow): Hall {
   return {
     id: row.id,
@@ -110,9 +118,6 @@ export function mapHallFromDb(row: DatabaseHallRow): Hall {
   };
 }
 
-/**
- * Transform database snake_case row into client-friendly Booking entity
- */
 export function mapBookingFromDb(row: DatabaseBookingRow, fallbackHallName?: string): Booking {
   return {
     id: row.id,
@@ -139,9 +144,6 @@ export function mapBookingFromDb(row: DatabaseBookingRow, fallbackHallName?: str
   };
 }
 
-/**
- * Transform database snake_case row into client-friendly MaintenanceWindow entity
- */
 export function mapMaintenanceFromDb(
   row: DatabaseMaintenanceRow,
   fallbackHallName?: string
@@ -155,7 +157,22 @@ export function mapMaintenanceFromDb(
     startTime: row.start_time,
     endTime: row.end_time,
     status: row.status,
+    createdBy: row.created_by ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+export function mapAuditEventFromDb(row: DatabaseAuditEventRow): AuditEvent {
+  return {
+    id: row.id,
+    actorId: row.actor_id,
+    actorEmail: row.actor_email,
+    action: row.action,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    summary: row.summary,
+    metadata: row.metadata ?? undefined,
+    timestamp: row.timestamp,
   };
 }

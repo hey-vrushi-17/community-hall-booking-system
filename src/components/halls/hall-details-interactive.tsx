@@ -1,19 +1,26 @@
 'use client';
 
 import * as React from 'react';
-import { Calendar, Clock, Users, ArrowRight, ShieldCheck, Check } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Hall } from '@/types';
 import { Button } from '@/components/ui/button';
 import { AvailabilityChecker } from './availability-checker';
 import { BookingRequestModal } from './booking-request-modal';
+import { getAppTodayDateString } from '@/lib/utils/timezone';
 
 export interface HallDetailsInteractiveProps {
   hall: Hall;
+  initialDateParam?: string;
 }
 
-export function HallDetailsInteractive({ hall }: HallDetailsInteractiveProps) {
+export function HallDetailsInteractive({ hall, initialDateParam }: HallDetailsInteractiveProps) {
+  const defaultDate =
+    initialDateParam && /^\d{4}-\d{2}-\d{2}$/.test(initialDateParam)
+      ? initialDateParam
+      : getAppTodayDateString();
+
   const [isModalOpen, setIsModalOpen] = React.useState(false);
-  const [selectedDate, setSelectedDate] = React.useState('2026-11-28');
+  const [selectedDate, setSelectedDate] = React.useState(defaultDate);
   const [selectedStart, setSelectedStart] = React.useState('10:00');
   const [selectedEnd, setSelectedEnd] = React.useState('16:00');
 
@@ -26,7 +33,6 @@ export function HallDetailsInteractive({ hall }: HallDetailsInteractiveProps) {
 
   return (
     <div className="space-y-8">
-      {/* Quick Booking CTA Bar */}
       <div className="civic-card p-6 bg-[#FBF9F5] border border-[#E5DFD5] flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-1">
           <span className="text-xs font-semibold text-[#C85A32] uppercase tracking-wider block">
@@ -36,8 +42,8 @@ export function HallDetailsInteractive({ hall }: HallDetailsInteractiveProps) {
             Ready to Request {hall.name}?
           </h3>
           <p className="text-xs text-[#615B52] max-w-lg leading-relaxed">
-            Verify real-time availability below or submit a preliminary booking request directly.
-            All requests are assigned a unique tracking number for municipal review.
+            Verify schedule availability below or submit a preliminary booking request directly.
+            All requests begin as PENDING and are assigned a unique reference code for review.
           </p>
         </div>
 
@@ -45,23 +51,23 @@ export function HallDetailsInteractive({ hall }: HallDetailsInteractiveProps) {
           <Button
             variant="primary"
             size="lg"
+            disabled={!hall.isActive}
             onClick={() => setIsModalOpen(true)}
             className="gap-2 text-sm shadow-sm"
           >
-            <span>Request Booking</span>
+            <span>{hall.isActive ? 'Request Booking' : 'Facility Archived'}</span>
             <ArrowRight className="w-4 h-4" />
           </Button>
         </div>
       </div>
 
-      {/* Live Availability Checker Component */}
       <AvailabilityChecker
         hallId={hall.id}
         hallName={hall.name}
-        onSelectSlot={handleSelectSlot}
+        initialDate={defaultDate}
+        onSelectSlot={hall.isActive ? handleSelectSlot : undefined}
       />
 
-      {/* Booking Modal */}
       <BookingRequestModal
         hall={hall}
         isOpen={isModalOpen}

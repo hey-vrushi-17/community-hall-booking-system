@@ -1,34 +1,29 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import {
   Search,
-  Filter,
   CheckCircle2,
   XCircle,
-  Clock,
-  ChevronRight,
   Eye,
-  Calendar,
-  Building,
-  User,
-  Phone,
-  Mail,
-  Users,
   FileText,
-  AlertCircle,
   RotateCcw,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
-import { Booking, Hall, BookingStatus } from '@/types';
+import { Booking, Hall } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DecisionModal } from './decision-modal';
+import { formatDateInAppTz, formatTimeInAppTz, getTimezoneLabel } from '@/lib/utils/timezone';
 
 interface RequestQueueClientProps {
   initialBookings: Booking[];
   halls: Hall[];
 }
+
+const PAGE_SIZE = 10;
 
 export function RequestQueueClient({
   initialBookings,
@@ -38,24 +33,22 @@ export function RequestQueueClient({
   const [searchQuery, setSearchQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<string>('PENDING');
   const [hallFilter, setHallFilter] = React.useState<string>('ALL');
+  const [page, setPage] = React.useState(1);
   const [selectedBooking, setSelectedBooking] = React.useState<Booking | null>(null);
   const [decisionMode, setDecisionMode] = React.useState<'approve' | 'reject' | null>(null);
   const [feedbackMessage, setFeedbackMessage] = React.useState<string | null>(null);
+  const tzLabel = getTimezoneLabel();
 
-  // Filter logic
   const filteredBookings = React.useMemo(() => {
     return bookings.filter((b) => {
-      // Status filter
       if (statusFilter !== 'ALL' && b.status !== statusFilter) {
         return false;
       }
 
-      // Hall filter
       if (hallFilter !== 'ALL' && b.hallId !== hallFilter) {
         return false;
       }
 
-      // Search query
       if (searchQuery.trim() !== '') {
         const q = searchQuery.toLowerCase().trim();
         const matchRef = b.referenceNumber.toLowerCase().includes(q);
@@ -72,9 +65,31 @@ export function RequestQueueClient({
     });
   }, [bookings, statusFilter, hallFilter, searchQuery]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredBookings.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedBookings = filteredBookings.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE
+  );
+
   const pendingCount = bookings.filter((b) => b.status === 'PENDING').length;
   const approvedCount = bookings.filter((b) => b.status === 'APPROVED').length;
   const rejectedCount = bookings.filter((b) => b.status === 'REJECTED').length;
+
+  // Detect overlap against already-approved bookings in memory for helpful preview
+  const selectedConflicts = React.useMemo(() => {
+    if (!selectedBooking || selectedBooking.status !== 'PENDING') return [];
+    const s = new Date(selectedBooking.startTime).getTime();
+    const e = new Date(selectedBooking.endTime).getTime();
+    return bookings.filter((other) => {
+      if (other.id === selectedBooking.id || other.hallId !== selectedBooking.hallId || other.status !== 'APPROVED') {
+        return false;
+      }
+      const os = new Date(other.startTime).getTime();
+      const oe = new Date(other.endTime).getTime();
+      return s < oe && e > os;
+    });
+  }, [bookings, selectedBooking]);
 
   const handleDecisionSuccess = (updated: Booking) => {
     setBookings((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
@@ -83,30 +98,6 @@ export function RequestQueueClient({
       `Booking ${updated.referenceNumber} status successfully updated to ${updated.status}.`
     );
     setTimeout(() => setFeedbackMessage(null), 5000);
-  };
-
-  const formatDate = (iso: string) => {
-    try {
-      return new Date(iso).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    } catch {
-      return iso;
-    }
-  };
-
-  const formatTime = (iso: string) => {
-    try {
-      return new Date(iso).toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'UTC',
-      });
-    } catch {
-      return iso;
-    }
   };
 
   return (
@@ -118,6 +109,7 @@ export function RequestQueueClient({
             <span>{feedbackMessage}</span>
           </div>
           <button
+            type="button"
             onClick={() => setFeedbackMessage(null)}
             className="text-xs text-[#1A3B2B] hover:underline"
           >
@@ -126,104 +118,55 @@ export function RequestQueueClient({
         </div>
       )}
 
-      {/* Filter Tabs & Search Bar */}
       <div className="civic-card p-4 bg-white border border-[#E5DFD5] space-y-4">
-        {/* Status Filter Tabs */}
         <div className="flex flex-wrap items-center gap-1.5 border-b border-[#E5DFD5] pb-3">
-          <button
-            type="button"
-            onClick={() => setStatusFilter('PENDING')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-              statusFilter === 'PENDING'
-                ? 'bg-[#1A3B2B] text-white shadow-xs'
-                : 'bg-[#FBF9F5] text-[#615B52] hover:text-[#1C1917] border border-[#E5DFD5]'
-            }`}
-          >
-            <span>Pending Review</span>
-            <span
-              className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                statusFilter === 'PENDING'
-                  ? 'bg-[#C85A32] text-white'
-                  : 'bg-[#E5DFD5] text-[#1C1917]'
+          {[
+            { key: 'PENDING', label: 'Pending Review', count: pendingCount, highlight: true },
+            { key: 'APPROVED', label: 'Approved', count: approvedCount },
+            { key: 'REJECTED', label: 'Declined', count: rejectedCount },
+            { key: 'ALL', label: 'All Requests', count: bookings.length },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => {
+                setStatusFilter(tab.key);
+                setPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                statusFilter === tab.key
+                  ? 'bg-[#1A3B2B] text-white shadow-xs'
+                  : 'bg-[#FBF9F5] text-[#615B52] hover:text-[#1C1917] border border-[#E5DFD5]'
               }`}
             >
-              {pendingCount}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setStatusFilter('APPROVED')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-              statusFilter === 'APPROVED'
-                ? 'bg-[#1A3B2B] text-white shadow-xs'
-                : 'bg-[#FBF9F5] text-[#615B52] hover:text-[#1C1917] border border-[#E5DFD5]'
-            }`}
-          >
-            <span>Approved</span>
-            <span
-              className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                statusFilter === 'APPROVED'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-[#E5DFD5] text-[#1C1917]'
-              }`}
-            >
-              {approvedCount}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setStatusFilter('REJECTED')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-              statusFilter === 'REJECTED'
-                ? 'bg-[#1A3B2B] text-white shadow-xs'
-                : 'bg-[#FBF9F5] text-[#615B52] hover:text-[#1C1917] border border-[#E5DFD5]'
-            }`}
-          >
-            <span>Declined</span>
-            <span
-              className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                statusFilter === 'REJECTED'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-[#E5DFD5] text-[#1C1917]'
-              }`}
-            >
-              {rejectedCount}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setStatusFilter('ALL')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-              statusFilter === 'ALL'
-                ? 'bg-[#1A3B2B] text-white shadow-xs'
-                : 'bg-[#FBF9F5] text-[#615B52] hover:text-[#1C1917] border border-[#E5DFD5]'
-            }`}
-          >
-            <span>All Requests</span>
-            <span
-              className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                statusFilter === 'ALL'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-[#E5DFD5] text-[#1C1917]'
-              }`}
-            >
-              {bookings.length}
-            </span>
-          </button>
+              <span>{tab.label}</span>
+              <span
+                className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+                  statusFilter === tab.key
+                    ? tab.highlight
+                      ? 'bg-[#C85A32] text-white'
+                      : 'bg-white/20 text-white'
+                    : 'bg-[#E5DFD5] text-[#1C1917]'
+                }`}
+              >
+                {tab.count}
+              </span>
+            </button>
+          ))}
         </div>
 
-        {/* Search & Hall dropdown filters */}
         <div className="flex flex-col sm:flex-row items-center gap-3">
           <div className="relative flex-1 w-full">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#8A8275]" />
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
               placeholder="Search reference (REQ-...), event name, or requester email..."
+              aria-label="Search booking requests"
               className="w-full pl-9 pr-3 py-2 text-xs rounded-md border border-[#E5DFD5] bg-[#FBF9F5] text-[#1C1917] focus:ring-1 focus:ring-[#1A3B2B] focus:border-[#1A3B2B]"
             />
           </div>
@@ -231,8 +174,12 @@ export function RequestQueueClient({
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <select
               value={hallFilter}
-              onChange={(e) => setHallFilter(e.target.value)}
-              className="text-xs px-3 py-2 rounded-md border border-[#E5DFD5] bg-[#FBF9F5] text-[#1C1917] focus:ring-1 focus:ring-[#1A3B2B] w-full sm:w-48"
+              onChange={(e) => {
+                setHallFilter(e.target.value);
+                setPage(1);
+              }}
+              aria-label="Filter by facility"
+              className="text-xs px-3 py-2 rounded-md border border-[#E5DFD5] bg-[#FBF9F5] text-[#1C1917] focus:ring-1 focus:ring-[#1A3B2B] w-full sm:w-52"
             >
               <option value="ALL">All Facilities</option>
               {halls.map((h) => (
@@ -250,6 +197,7 @@ export function RequestQueueClient({
                   setSearchQuery('');
                   setHallFilter('ALL');
                   setStatusFilter('PENDING');
+                  setPage(1);
                 }}
                 className="text-xs shrink-0 gap-1 text-[#615B52]"
                 title="Reset filters"
@@ -262,18 +210,19 @@ export function RequestQueueClient({
         </div>
       </div>
 
-      {/* Main Grid: Queue Table & Inspector Drawer */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Table Column (2 cols on large screens) */}
         <div className="lg:col-span-2 space-y-3">
           <div className="flex items-center justify-between text-xs text-[#615B52] px-1">
             <span>
-              Showing <strong>{filteredBookings.length}</strong> of{' '}
-              <strong>{bookings.length}</strong> booking requests
+              Showing <strong>{paginatedBookings.length}</strong> of{' '}
+              <strong>{filteredBookings.length}</strong> matching requests
+            </span>
+            <span>
+              Page {safePage} of {totalPages}
             </span>
           </div>
 
-          {filteredBookings.length === 0 ? (
+          {paginatedBookings.length === 0 ? (
             <div className="civic-card p-12 bg-white border border-[#E5DFD5] text-center space-y-2">
               <CheckCircle2 className="w-10 h-10 text-[#1A3B2B] mx-auto" />
               <h4 className="text-base font-bold text-[#1C1917]">No Matching Requests</h4>
@@ -283,13 +232,14 @@ export function RequestQueueClient({
             </div>
           ) : (
             <div className="civic-card bg-white border border-[#E5DFD5] overflow-hidden divide-y divide-[#E5DFD5]">
-              {filteredBookings.map((b) => {
+              {paginatedBookings.map((b) => {
                 const isSelected = selectedBooking?.id === b.id;
                 return (
-                  <div
+                  <button
                     key={b.id}
+                    type="button"
                     onClick={() => setSelectedBooking(b)}
-                    className={`p-4 transition-colors cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    className={`w-full text-left p-4 transition-colors cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                       isSelected
                         ? 'bg-[#EBF3EE]/60 border-l-4 border-l-[#1A3B2B]'
                         : 'hover:bg-[#FBF9F5]'
@@ -306,36 +256,56 @@ export function RequestQueueClient({
                       <div className="flex flex-wrap items-center gap-2 text-xs text-[#615B52]">
                         <span className="font-medium text-[#1C1917]">{b.hallName}</span>
                         <span>•</span>
-                        <span>{formatDate(b.startTime)}</span>
+                        <span>{formatDateInAppTz(b.startTime)}</span>
                         <span>•</span>
                         <span className="font-mono">
-                          {formatTime(b.startTime)} – {formatTime(b.endTime)}
+                          {formatTimeInAppTz(b.startTime)} – {formatTimeInAppTz(b.endTime)}
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                      <Button
-                        variant={isSelected ? 'primary' : 'outline'}
-                        size="sm"
-                        className="text-xs gap-1"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Inspect</span>
-                      </Button>
-                    </div>
-                  </div>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-[#CDC5B7] bg-white text-xs font-medium text-[#1C1917] self-start sm:self-auto shrink-0">
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>{isSelected ? 'Selected' : 'Inspect'}</span>
+                    </span>
+                  </button>
                 );
               })}
             </div>
           )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-2 text-xs">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="gap-1 text-xs"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Previous
+              </Button>
+              <span className="text-[#615B52]">
+                Page {safePage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="gap-1 text-xs"
+              >
+                Next
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* Inspector Detail Column (1 col on large screens) */}
         <div className="space-y-4">
           {selectedBooking ? (
             <div className="civic-card p-5 bg-white border border-[#E5DFD5] space-y-5 sticky top-24">
-              {/* Header */}
               <div className="border-b border-[#E5DFD5] pb-3 space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-xs font-bold text-[#1A3B2B]">
@@ -351,7 +321,18 @@ export function RequestQueueClient({
                 </span>
               </div>
 
-              {/* Event details */}
+              {selectedConflicts.length > 0 && (
+                <div className="p-3 rounded-md bg-[#FEF3F2] border border-[#FECDCA] text-xs text-[#912018] space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>Schedule Conflict Detected</span>
+                  </div>
+                  <p className="text-[11px]">
+                    Overlaps with approved event <strong>{selectedConflicts[0].referenceNumber}</strong> ({selectedConflicts[0].eventName}). Server approval will be blocked.
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-3 text-xs">
                 <div>
                   <span className="text-[11px] text-[#8A8275] block font-semibold uppercase">
@@ -364,13 +345,13 @@ export function RequestQueueClient({
 
                 <div>
                   <span className="text-[11px] text-[#8A8275] block font-semibold uppercase">
-                    Requested Date & Time (UTC)
+                    Requested Date &amp; Time ({tzLabel})
                   </span>
                   <span className="text-[#1C1917] font-semibold block">
-                    {formatDate(selectedBooking.startTime)}
+                    {formatDateInAppTz(selectedBooking.startTime)}
                   </span>
                   <span className="font-mono text-[#615B52]">
-                    {formatTime(selectedBooking.startTime)} – {formatTime(selectedBooking.endTime)}
+                    {formatTimeInAppTz(selectedBooking.startTime)} – {formatTimeInAppTz(selectedBooking.endTime)}
                   </span>
                 </div>
 
@@ -420,7 +401,6 @@ export function RequestQueueClient({
                 )}
               </div>
 
-              {/* Administrative Actions */}
               <div className="border-t border-[#E5DFD5] pt-4 space-y-2">
                 <span className="text-[11px] font-bold text-[#8A8275] uppercase tracking-wider block">
                   Administrative Action
@@ -462,6 +442,10 @@ export function RequestQueueClient({
                       Revoke / Reject Booking
                     </Button>
                   </div>
+                ) : selectedBooking.status === 'CANCELLED' ? (
+                  <div className="p-2.5 rounded bg-[#F5F2EB] text-[#615B52] text-xs font-medium">
+                    Cancelled by requester. No administrative action permitted.
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     <div className="p-2.5 rounded bg-[#FEF3F2] text-[#B42318] text-xs font-medium flex items-center gap-2">
@@ -474,7 +458,7 @@ export function RequestQueueClient({
                       onClick={() => setDecisionMode('approve')}
                       className="w-full text-xs text-[#1A3B2B] hover:bg-[#EBF3EE]"
                     >
-                      Re-evaluate & Approve
+                      Re-evaluate &amp; Approve
                     </Button>
                   </div>
                 )}
@@ -485,14 +469,13 @@ export function RequestQueueClient({
               <FileText className="w-8 h-8 text-[#8A8275] mx-auto" />
               <h4 className="text-sm font-bold text-[#1C1917]">No Request Selected</h4>
               <p className="text-xs text-[#615B52]">
-                Click on any booking request in the queue to inspect attendee details, review equipment notes, and execute administrative actions.
+                Select any booking request from the queue to inspect attendee details, review setup notes, and issue approval decisions.
               </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Decision Confirmation Modal */}
       <DecisionModal
         booking={selectedBooking}
         mode={decisionMode}

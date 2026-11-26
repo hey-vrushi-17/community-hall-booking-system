@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { getAdminSession } from '@/lib/auth/admin-auth';
 import { AdminHeader } from '@/components/admin/admin-header';
 import { getAllBookings } from '@/lib/services/booking-store';
+import { DataSourceIndicator } from '@/components/ui/datasource-indicator';
 
 export const metadata: Metadata = {
   title: 'Facilities Administration Portal | CivicSpaces',
@@ -11,27 +12,33 @@ export const metadata: Metadata = {
 
 export const instant = false;
 
-export default async function AdminLayout({
+export default async function ProtectedAdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const session = await getAdminSession();
 
-  // If not authenticated, redirect to admin login
   if (!session.isAuthenticated || !session.user) {
     redirect('/admin/login');
   }
 
-  // Retrieve pending requests count for badge indicator
-  const allBookings = await getAllBookings();
-  const pendingCount = allBookings.filter((b) => b.status === 'PENDING').length;
+  let pendingCount = 0;
+  try {
+    const allBookings = await getAllBookings('PENDING');
+    pendingCount = allBookings.length;
+  } catch {
+    pendingCount = 0;
+  }
 
   return (
     <div className="min-h-screen bg-[#FBF9F5] flex flex-col">
       <AdminHeader user={session.user} pendingCount={pendingCount} />
       <main className="flex-1 py-8 md:py-10">
-        <div className="civic-container">{children}</div>
+        <div className="civic-container space-y-6">
+          <DataSourceIndicator />
+          {children}
+        </div>
       </main>
     </div>
   );

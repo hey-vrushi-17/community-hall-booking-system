@@ -8,17 +8,20 @@ export async function PUT(
 ) {
   try {
     const session = await getAdminSession();
-    if (!session.isAuthenticated) {
+    if (!session.isAuthenticated || !session.user) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 403 });
     }
 
     const { id } = await context.params;
     const body = await request.json();
 
-    const result = await updateMaintenanceWindow(id, body);
+    const result = await updateMaintenanceWindow(id, body, {
+      id: session.user.id,
+      email: session.user.email,
+    });
     if (!result.success) {
       return NextResponse.json(
-        { error: result.error || 'Failed to update maintenance.' },
+        { error: result.error || 'Failed to update maintenance.', conflicts: result.conflicts },
         { status: 409 }
       );
     }
@@ -40,14 +43,17 @@ export async function PATCH(
 ) {
   try {
     const session = await getAdminSession();
-    if (!session.isAuthenticated) {
+    if (!session.isAuthenticated || !session.user) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 403 });
     }
 
     const { id } = await context.params;
     const body = await request.json().catch(() => ({}));
 
-    const result = await cancelMaintenanceWindow(id, body.reason);
+    const result = await cancelMaintenanceWindow(id, body.reason, {
+      id: session.user.id,
+      email: session.user.email,
+    });
     if (!result.success) {
       return NextResponse.json(
         { error: result.error || 'Failed to cancel maintenance.' },

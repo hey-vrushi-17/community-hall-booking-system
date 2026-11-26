@@ -4,159 +4,130 @@
 
 # CivicSpaces — Community Hall Booking & Management System
 
-CivicSpaces is a responsive, accessible web platform for municipal community hall reservations and civic facility management. The platform enables citizens to discover community halls, verify live schedule availability against approved bookings and maintenance closures, submit structured booking requests for administrative review, track request status, and view their submitted requests.
+CivicSpaces is a full-stack community hall booking and facility management platform built with **Next.js App Router, React, TypeScript, Tailwind CSS, and Supabase (Postgres, Auth, Storage, and Row Level Security)**.
 
 ---
 
-## Architecture & Technology Stack
+## Core Features
 
-- **Framework**: Next.js 16 (App Router with Partial Prerendering and Turbopack)
-- **Language**: TypeScript (strict mode)
-- **Database & Auth**: Supabase Postgres, Supabase Auth, and Row Level Security (RLS)
-- **Client Libraries**: `@supabase/supabase-js`, `@supabase/ssr`
-- **UI & Styling**: React 19, Tailwind CSS v4, Lucide React
-- **Validation**: Zod (client and server-side schema validation)
+### Public Visitors & Requesters
+- **Landing Page (`/`)**: Explains the reservation review workflow, public policies, featured venues, and configurable help desk details.
+- **Hall Directory (`/halls`)**: Search active halls and filter by **available event date**, **guest capacity**, **city/location**, and **amenities**.
+- **Hall Details & Live Schedule (`/halls/[slug]`)**: View capacity, amenities, operating hours, usage policies, and a real-time hourly availability calendar showing approved bookings and active maintenance closures.
+- **Booking Request Flow (`/request` & in-page modal)**: Submit structured `PENDING` booking requests validated by Zod and server business rules (capacity limits, operating hours, date validity, and slot conflicts).
+- **Confirmation & Status Tracking (`/request/confirmation`, `/track`)**: Review submitted requests by reference code (`REQ-YYYY-XXXX`) with privacy-masked contact fields for unauthenticated lookups.
+- **Supabase Auth & Citizen Portal (`/my-requests`, `/auth/callback`, `/auth/update-password`)**: Sign up, sign in, sign out, reset forgotten passwords, update contact profile, view personal booking requests under RLS, and **cancel pending requests**.
 
----
-
-## Phase 2 Features & Implemented Flow
-
-1. **Supabase Database & Version-Controlled Migrations**
-   - Version-controlled SQL migrations located in `supabase/migrations/`:
-     - `20261116000001_initial_schema.sql`: Core tables (`profiles`, `halls`, `bookings`, `maintenance_windows`, `audit_events`), high-performance query indexes, PostgreSQL exclusion constraints, transaction-safe database stored procedures, and Row Level Security (RLS) policies.
-     - `20261116000002_seed_data.sql`: Realistic development sample data (clearly labeled as sample data) with 6 civic facilities, sample approved/pending bookings, and scheduled maintenance windows.
-
-2. **Database-Level Concurrency & Overlap Prevention**
-   - Uses PostgreSQL `btree_gist` extension to enforce a strict **EXCLUDE constraint** on `bookings`:
-     ```sql
-     CONSTRAINT no_overlapping_approved_bookings
-     EXCLUDE USING gist (
-       hall_id WITH =,
-       tstzrange(start_time, end_time) WITH &&
-     )
-     WHERE (status = 'APPROVED');
-     ```
-   - Transaction-safe database procedure `public.approve_booking_tx` that acquires row-level locks (`SELECT ... FOR UPDATE`), verifies that neither overlapping approved bookings nor active maintenance windows exist, and atomically confirms the reservation.
-
-3. **Row Level Security (RLS) Policies**
-   - **`halls`**: Public users can view active halls (`is_active = true`); only staff/admins can modify halls.
-   - **`bookings`**: Public users can insert requests strictly with `status = 'PENDING'`. Authenticated requesters can query only their own booking requests (`auth.uid() = user_id`). Staff/admins can view and update all requests.
-   - **`maintenance_windows`**: Public users can view scheduled maintenance windows for transparent facility availability.
-   - **`profiles`**: Citizens can view and update only their own profile.
-
-4. **Transparent Data Source Handling**
-   - Automatically detects whether Supabase environment variables are configured via `isSupabaseConfigured()`.
-   - When configured, queries run against live Supabase Postgres.
-   - When credentials are not configured, provides an explicit, labeled **Development Sample Mode** notice (`<DataSourceIndicator />`) rather than pretending data is live.
-
-5. **Live Hall Availability & Schedule View**
-   - Real-time availability engine evaluates slot availability by date and hour.
-   - Excludes approved bookings (`status = 'APPROVED'`) and active maintenance windows (`SCHEDULED` or `IN_PROGRESS`).
-   - Core domain rule strictly observed: **Submitted requests in `PENDING` status do not block availability**.
-   - Includes quick date stepping (Previous/Next day) and instant slot selection ("Use this time in request").
-
-6. **Visitor Booking Request Form & Server-Side Validation**
-   - Comprehensive booking request modal with event date, start/end time, event category, attendee headcount, contact information, and optional equipment requests.
-   - Server-side validation via Zod in `/api/bookings` route handler.
-   - Formally initializes every new request with `status: 'PENDING'`. A submitted request is never presented as confirmed.
-
-7. **Dedicated Request Confirmation Page**
-   - Route: `/request/confirmation?ref=REQ-YYYY-XXXX`
-   - Highlights the reference number with one-click copy, event details, venue specifications, and explicit municipal notice explaining that the request is pending administrative review.
-
-8. **Citizen Portal: "My Requests" View**
-   - Route: `/my-requests`
-   - Allows authenticated citizens to sign in with Supabase Auth to safely view and track their own booking requests under Row Level Security.
-   - Unauthenticated visitors can also look up any request by reference number via `/track`.
+### Administrators & Staff
+- **Protected Portal (`/admin`, `/admin/login`)**: Role-based access control backed by Supabase Auth + `public.profiles.role IN ('STAFF', 'ADMIN')` and server-side guards on every `/admin/*` page and `/api/admin/*` route.
+- **Dashboard (`/admin`)**: Pending requests count, confirmed events, active maintenance count, hall utilization metrics, active closures, and recent audit activity.
+- **Booking Request Queue (`/admin/queue`)**: Filterable, paginated review queue with conflict detection and transactional approval/rejection (`approve_booking_tx` RPC + PostgreSQL `btree_gist` exclusion constraint).
+- **Booking Records (`/admin/records`)**: Searchable, paginated registry with date-range, hall, and status filters plus CSV export.
+- **Master Calendar (`/admin/calendar`)**: Month view and daily schedule inspector distinguishing approved bookings from maintenance windows.
+- **Hall Management (`/admin/halls`)**: Create, edit, feature, activate/archive halls, manage amenities, operating hours, policies, and imagery.
+- **Maintenance Management (`/admin/maintenance`)**: Schedule, edit, and cancel maintenance windows with overlap protection against confirmed events.
+- **Audit History (`/admin/audit`)**: Filterable, paginated audit trail of approvals, rejections, cancellations, facility updates, and maintenance actions.
 
 ---
 
-## Supabase Setup Instructions
+## Tech Stack & Requirements
 
-### 1. Create a Supabase Project
-1. Sign in to [Supabase](https://supabase.com/dashboard).
-2. Click **New Project**, choose an organization, provide a project name (e.g. `civic-spaces-booking`), set a strong database password, and select your region.
+- **Node.js**: `>= 20.x` (verified on Node v24)
+- **Package Manager**: `npm`
+- **Framework**: Next.js 16 (App Router, Turbopack), React 19, TypeScript 5
+- **Styling**: Tailwind CSS v4, Lucide React
+- **Validation**: Zod
+- **Backend**: Supabase Postgres, Supabase Auth, Supabase Storage, SQL Migrations & RLS (`@supabase/supabase-js`, `@supabase/ssr`)
 
-### 2. Obtain Project Credentials
-In your Supabase project dashboard:
-1. Navigate to **Project Settings** (gear icon) -> **API**.
-2. Copy the **Project URL** (`https://<project-ref>.supabase.co`).
-3. Copy the **anon / public** API Key.
-4. Copy the **service_role** secret API Key (keep this private; never share or expose it to client-side code).
+---
 
-### 3. Configure Environment Variables
-Create a `.env.local` file in the project root:
+## Supabase Project Setup
+
+1. **Create a Supabase Project**
+   - Sign in at [supabase.com/dashboard](https://supabase.com/dashboard) and click **New Project**.
+   - Choose your organization, project name, strong database password, and region.
+
+2. **Collect API Credentials**
+   - Go to **Project Settings → API** and copy:
+     - **Project URL** (`NEXT_PUBLIC_SUPABASE_URL`)
+     - **anon / public** key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`)
+     - **service_role** key (`SUPABASE_SERVICE_ROLE_KEY`) — *Server-only; never expose in browser code or commit to git.*
+
+3. **Configure Environment Variables**
+   ```bash
+   cp .env.example .env.local
+   ```
+   Fill in `.env.local`:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY` (required for server-side admin operations and bypassing strict PII RLS safely on trusted server routes)
+   - `NEXT_PUBLIC_SITE_URL` (e.g., `http://localhost:3000` locally or your production domain for Auth email redirects)
+   - `NEXT_PUBLIC_APP_TIMEZONE` (defaults to `Asia/Kolkata`; timestamps are stored in UTC in Postgres and rendered in this timezone)
+   - Optional support contact overrides (`NEXT_PUBLIC_SUPPORT_OFFICE`, `NEXT_PUBLIC_SUPPORT_PHONE`, `NEXT_PUBLIC_SUPPORT_EMAIL`, `NEXT_PUBLIC_SUPPORT_HOURS`)
+
+   > **Important:** If Supabase env vars are omitted, the app runs in an explicitly labeled **Development Sample Mode (Offline)**. If Supabase env vars are set but migrations have not been applied yet, the app surfaces an explicit setup-required state instead of pretending sample data is live.
+
+4. **Configure Supabase Auth Redirect URLs**
+   - In Supabase Dashboard → **Authentication → URL Configuration**:
+     - Set **Site URL** to your `NEXT_PUBLIC_SITE_URL` (e.g. `http://localhost:3000`).
+     - Add `http://localhost:3000/auth/callback` (and your production `/auth/callback`) to **Redirect URLs** so email verification and password recovery links work.
+
+---
+
+## Applying Migrations & Seeding Development Data
+
+Production schema migrations are separated from development sample data:
+- **Migrations**: `supabase/migrations/`
+  1. `20261116000001_initial_schema.sql` — Tables, `btree_gist` exclusion constraints, indexes, and base RLS policies.
+  2. `20261126000003_security_audit_and_rules.sql` — Hardened `handle_new_user()` (prevents client role escalation), profile role-update trigger, owner pending-booking cancellation RLS, `created_by` on maintenance, `approve_booking_tx` RPC, public schedule RPC, and `hall-images` Storage bucket policies.
+- **Development Seed Only**: `supabase/seed.sql` — 15 sample halls, sample bookings, and sample maintenance windows for local/staging testing. Do **not** run `seed.sql` in production if you want a clean catalog.
+
+### Apply via Supabase CLI
 ```bash
-cp .env.example .env.local
-```
-
-Populate the values in `.env.local`:
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key-here
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
-NODE_ENV=development
-```
-
-### 4. Apply Database Migrations
-You can apply the migrations using either the Supabase Dashboard or the Supabase CLI:
-
-#### Option A: Supabase Dashboard SQL Editor (Recommended)
-1. Open your project on [Supabase Dashboard](https://supabase.com/dashboard).
-2. Go to the **SQL Editor** tab from the left sidebar.
-3. Open `supabase/migrations/20261116000001_initial_schema.sql`, copy its entire content, paste it into the SQL Editor, and click **Run**.
-4. (Optional for development testing) Open `supabase/migrations/20261116000002_seed_data.sql`, paste its content into the SQL Editor, and click **Run** to load realistic sample halls and bookings.
-
-#### Option B: Supabase CLI
-```bash
-# Link your local repo to your remote Supabase project
-npx supabase link --project-ref your-project-ref
-
-# Push the migrations
+npx supabase link --project-ref <your-project-ref>
 npx supabase db push
 ```
+To load development sample data locally or into a dev database, execute `supabase/seed.sql` via the Supabase Dashboard SQL Editor or `psql`.
+
+### Apply via Supabase Dashboard SQL Editor
+Run the migration files in order (`20261116000001_initial_schema.sql`, then `20261126000003_security_audit_and_rules.sql`), and optionally run `supabase/seed.sql` for development testing.
 
 ---
 
-## Running the Application Locally
+## Creating the First Administrator Securely
 
-1. **Install dependencies**:
-   ```bash
-   npm install
-   ```
+Public sign-ups always receive the `CITIZEN` role (`handle_new_user()` ignores any client-supplied role metadata, and a database trigger blocks non-admin role updates).
 
-2. **Run domain verification tests**:
-   ```bash
-   npx tsx tests/verify-domain.mjs
+To promote your first administrator:
+1. Create a user via **Supabase Dashboard → Authentication → Users → Add user** (or register via `/my-requests`).
+2. In the **Supabase SQL Editor** (or via a trusted server migration), promote that specific user by email:
+   ```sql
+   UPDATE public.profiles
+   SET role = 'ADMIN', full_name = 'Primary Facilities Administrator'
+   WHERE id = (
+     SELECT id FROM auth.users WHERE email = 'your-admin@example.org'
+   );
    ```
-   *(Verifies all 13 core domain rules including availability exclusion, pending non-blocking rules, and concurrency safeguards).*
-
-3. **Start the development server**:
-   ```bash
-   npm run dev
-   ```
-   Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-4. **Production Build & Verification**:
-   ```bash
-   npm run build
-   npm run start
-   ```
+3. Sign in at `/admin/login` using that user's email and password.
 
 ---
 
-## What Remains for Phase 3 (Administrator Phase)
+## Running Locally & Verification
 
-The visitor and citizen reservation journey is complete. The following capabilities belong to the upcoming **Phase 3: Administrative Facility Operations**:
+```bash
+npm install
+npm run test:domain   # Domain rules, timezone, validation, and concurrency checks
+npm run typecheck     # TypeScript strict check
+npm run lint          # ESLint check
+npm run dev           # Start development server at http://localhost:3000
+npm run build         # Production Next.js build
+```
 
-1. **Staff / Administrator Portal (`/admin`)**
-   - Protected route requiring `role IN ('STAFF', 'ADMIN')` in `public.profiles`.
-2. **Booking Review Queue**
-   - Interface to review pending booking requests, view requester details, and examine potential conflicts.
-   - Administrative decision actions (Approve / Reject / Request Information) invoking `approve_booking_tx`.
-3. **Maintenance Management**
-   - Schedule routine facility maintenance, repairs, or health inspections that automatically block visitor booking availability.
-4. **Hall Management**
-   - Facility editing (updating rates, capacities, images, amenities, and operational hours).
-5. **Municipal Audit Log Explorer**
-   - Real-time audit trail of all administrative decisions and status transitions.
+---
+
+## Deployment Notes & Known Limitations
+
+- **Production Auth Secret**: Set `ENABLE_DEMO_ADMIN=false` (or omit it in `NODE_ENV=production`) and authenticate admins exclusively via Supabase Auth + `public.profiles`.
+- **Service Role Key**: Keep `SUPABASE_SERVICE_ROLE_KEY` strictly on the server; never prefix it with `NEXT_PUBLIC_`.
+- **No Payments or Email Dispatch**: Payment processing and outbound booking confirmation emails are intentionally out of scope; Supabase Auth handles account verification and password recovery emails.
+- **Development Sample Mode**: In-memory mutations in unconfigured sample mode reset when the server process restarts.

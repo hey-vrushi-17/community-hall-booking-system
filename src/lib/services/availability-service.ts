@@ -4,16 +4,25 @@ import {
   MaintenanceWindow,
   TimeSlot,
 } from '@/types';
-import { getHallById } from './hall-service';
+import { DatabaseSetupError, getAllHalls, getHallById } from './hall-service';
 import { getBookingsForHall, getMaintenanceForHall } from './booking-store';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient, createPublicClient } from '@/lib/supabase/server';
 import {
   mapBookingFromDb,
   mapMaintenanceFromDb,
   DatabaseBookingRow,
   DatabaseMaintenanceRow,
 } from '@/lib/supabase/types';
+import { zonedLocalToUtcDate } from '@/lib/utils/timezone';
+
+interface PublicScheduleEntry {
+  kind: 'APPROVED_BOOKING' | 'MAINTENANCE_WINDOW';
+  title: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+}
 
 /**
  * Checks whether a requested time interval [requestedStart, requestedEnd] is available.
@@ -22,7 +31,6 @@ import {
  * 1. Maintenance windows (SCHEDULED / IN_PROGRESS) block availability.
  * 2. Approved bookings (status = 'APPROVED') block availability.
  * 3. Submitted requests (status = 'PENDING') do NOT block availability.
- *    (A submitted request is not an approved booking).
  * 4. Cancelled or Rejected bookings never block availability.
  */
 export async function checkSlotAvailability(
@@ -66,61 +74,111 @@ export async function checkSlotAvailability(
   let conflictingMaintenance: MaintenanceWindow[] = [];
 
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = await createClient();
-      if (supabase) {
-        // Query overlapping approved bookings
-        const { data: bData, error: bError } = await supabase
+    const adminClient = createAdminClient();
+    if (adminClient) {
+      const [{ data: bData, error: bError }, { data: mData, error: mError }] = await Promise.all([
+        adminClient
           .from('bookings')
           .select('*, halls(name)')
           .eq('hall_id', hallId)
           .eq('status', 'APPROVED')
           .lt('start_time', end.toISOString())
-          .gt('end_time', start.toISOString());
-
-        if (!bError && bData) {
-          conflictingBookings = (bData as unknown as DatabaseBookingRow[]).map((r) =>
-            mapBookingFromDb(r, hall.name)
-          );
-        }
-
-        // Query overlapping active maintenance
-        const { data: mData, error: mError } = await supabase
+          .gt('end_time', start.toISOString()),
+        adminClient
           .from('maintenance_windows')
           .select('*, halls(name)')
           .eq('hall_id', hallId)
           .in('status', ['SCHEDULED', 'IN_PROGRESS'])
           .lt('start_time', end.toISOString())
-          .gt('end_time', start.toISOString());
+          .gt('end_time', start.toISOString()),
+      ]);
 
-        if (!mError && mData) {
-          conflictingMaintenance = (mData as unknown as DatabaseMaintenanceRow[]).map((r) =>
-            mapMaintenanceFromDb(r, hall.name)
-          );
+      if (bError) {
+        throw new DatabaseSetupError(`Availability query failed: ${bError.message}`, bError.code);
+      }
+      if (mError) {
+        throw new DatabaseSetupError(`Maintenance query failed: ${mError.message}`, mError.code);
+      }
+
+      conflictingBookings = ((bData || []) as unknown as DatabaseBookingRow[]).map((r) =>
+        mapBookingFromDb(r, hall.name)
+      );
+      conflictingMaintenance = ((mData || []) as unknown as DatabaseMaintenanceRow[]).map((r) =>
+        mapMaintenanceFromDb(r, hall.name)
+      );
+    } else {
+      // Public client uses privacy-preserving RPC (does not expose requester PII)
+      const publicClient = createPublicClient();
+      if (!publicClient) {
+        throw new DatabaseSetupError('Supabase client is unavailable.');
+      }
+      const { data: scheduleRows, error: rpcError } = await publicClient.rpc(
+        'get_public_hall_schedule',
+        {
+          p_hall_id: hallId,
+          p_day_start: start.toISOString(),
+          p_day_end: end.toISOString(),
         }
-      }
-    } catch (err) {
-      console.warn('Supabase slot availability check error, falling back to in-memory check:', err);
-    }
-  }
+      );
 
-  // Fallback / in-memory check if not Supabase or Supabase query didn't populate
-  if (!isSupabaseConfigured() || (conflictingBookings.length === 0 && conflictingMaintenance.length === 0)) {
-    const allBookings = await getBookingsForHall(hallId);
-    conflictingBookings = allBookings.filter((b) => {
-      if (b.status !== 'APPROVED') {
-        return false; // Only APPROVED bookings block availability
+      if (rpcError) {
+        throw new DatabaseSetupError(
+          `Supabase availability RPC failed (${rpcError.code || 'DB_ERROR'}): ${rpcError.message}`,
+          rpcError.code || 'DB_ERROR'
+        );
       }
+
+      const entries = (scheduleRows || []) as PublicScheduleEntry[];
+      conflictingBookings = entries
+        .filter((e) => e.kind === 'APPROVED_BOOKING')
+        .map((e, idx) => ({
+          id: `conflict-b-${idx}`,
+          referenceNumber: 'RESERVED',
+          hallId,
+          hallName: hall.name,
+          requesterName: 'Reserved',
+          requesterEmail: '',
+          requesterPhone: '',
+          eventName: e.title,
+          eventType: 'Reserved Event',
+          expectedAttendees: 0,
+          startTime: e.start_time,
+          endTime: e.end_time,
+          status: 'APPROVED',
+          createdAt: e.start_time,
+          updatedAt: e.start_time,
+        }));
+
+      conflictingMaintenance = entries
+        .filter((e) => e.kind === 'MAINTENANCE_WINDOW')
+        .map((e, idx) => ({
+          id: `conflict-m-${idx}`,
+          hallId,
+          hallName: hall.name,
+          title: e.title,
+          reason: 'Scheduled Maintenance',
+          startTime: e.start_time,
+          endTime: e.end_time,
+          status: (e.status as MaintenanceWindow['status']) || 'SCHEDULED',
+          createdAt: e.start_time,
+          updatedAt: e.start_time,
+        }));
+    }
+  } else {
+    const [allBookings, allMaintenance] = await Promise.all([
+      getBookingsForHall(hallId),
+      getMaintenanceForHall(hallId),
+    ]);
+
+    conflictingBookings = allBookings.filter((b) => {
+      if (b.status !== 'APPROVED') return false;
       const bStart = new Date(b.startTime).getTime();
       const bEnd = new Date(b.endTime).getTime();
       return requestedStartMs < bEnd && requestedEndMs > bStart;
     });
 
-    const allMaintenance = await getMaintenanceForHall(hallId);
     conflictingMaintenance = allMaintenance.filter((m) => {
-      if (m.status !== 'SCHEDULED' && m.status !== 'IN_PROGRESS') {
-        return false;
-      }
+      if (m.status !== 'SCHEDULED' && m.status !== 'IN_PROGRESS') return false;
       const mStart = new Date(m.startTime).getTime();
       const mEnd = new Date(m.endTime).getTime();
       return requestedStartMs < mEnd && requestedEndMs > mStart;
@@ -152,72 +210,120 @@ export async function checkSlotAvailability(
 }
 
 /**
- * Generates an hourly schedule breakdown for a hall on a specific date (YYYY-MM-DD).
+ * Generates an hourly schedule breakdown for a hall on a specific local date (YYYY-MM-DD).
  */
 export async function getDaySchedule(hallId: string, dateStr: string): Promise<TimeSlot[]> {
   const hall = await getHallById(hallId);
-  const openHour = hall?.operatingHours ? parseInt(hall.operatingHours.open.split(':')[0], 10) : 8;
-  const closeHour = hall?.operatingHours ? parseInt(hall.operatingHours.close.split(':')[0], 10) : 22;
+  if (!hall) {
+    return [];
+  }
 
-  const dayStart = new Date(`${dateStr}T00:00:00Z`);
-  const dayEnd = new Date(`${dateStr}T23:59:59Z`);
+  const openHour = hall.operatingHours ? parseInt(hall.operatingHours.open.split(':')[0], 10) : 8;
+  const closeHour = hall.operatingHours ? parseInt(hall.operatingHours.close.split(':')[0], 10) : 22;
 
-  let approvedBookings: Booking[] = [];
-  let activeMaintenance: MaintenanceWindow[] = [];
+  const dayStart = zonedLocalToUtcDate(dateStr, '00:00');
+  const dayEnd = zonedLocalToUtcDate(dateStr, '23:59');
+
+  let approvedRanges: { startMs: number; endMs: number; title: string }[] = [];
+  let maintRanges: { startMs: number; endMs: number; title: string }[] = [];
 
   if (isSupabaseConfigured()) {
-    try {
-      const supabase = await createClient();
-      if (supabase) {
-        const { data: bData } = await supabase
+    const adminClient = createAdminClient();
+    if (adminClient) {
+      const [{ data: bData, error: bError }, { data: mData, error: mError }] = await Promise.all([
+        adminClient
           .from('bookings')
-          .select('*, halls(name)')
+          .select('event_name, start_time, end_time')
           .eq('hall_id', hallId)
           .eq('status', 'APPROVED')
           .lt('start_time', dayEnd.toISOString())
-          .gt('end_time', dayStart.toISOString());
-
-        if (bData) {
-          approvedBookings = (bData as unknown as DatabaseBookingRow[]).map((r) =>
-            mapBookingFromDb(r)
-          );
-        }
-
-        const { data: mData } = await supabase
+          .gt('end_time', dayStart.toISOString()),
+        adminClient
           .from('maintenance_windows')
-          .select('*, halls(name)')
+          .select('title, start_time, end_time')
           .eq('hall_id', hallId)
           .in('status', ['SCHEDULED', 'IN_PROGRESS'])
           .lt('start_time', dayEnd.toISOString())
-          .gt('end_time', dayStart.toISOString());
+          .gt('end_time', dayStart.toISOString()),
+      ]);
 
-        if (mData) {
-          activeMaintenance = (mData as unknown as DatabaseMaintenanceRow[]).map((r) =>
-            mapMaintenanceFromDb(r)
-          );
-        }
+      if (bError) {
+        throw new DatabaseSetupError(`Schedule query failed: ${bError.message}`, bError.code);
       }
-    } catch (err) {
-      console.warn('Supabase getDaySchedule error, falling back:', err);
+      if (mError) {
+        throw new DatabaseSetupError(`Maintenance schedule query failed: ${mError.message}`, mError.code);
+      }
+
+      approvedRanges = (bData || []).map((b) => ({
+        startMs: new Date(b.start_time).getTime(),
+        endMs: new Date(b.end_time).getTime(),
+        title: b.event_name,
+      }));
+      maintRanges = (mData || []).map((m) => ({
+        startMs: new Date(m.start_time).getTime(),
+        endMs: new Date(m.end_time).getTime(),
+        title: m.title,
+      }));
+    } else {
+      const publicClient = createPublicClient();
+      if (!publicClient) {
+        throw new DatabaseSetupError('Supabase client is unavailable.');
+      }
+      const { data: scheduleRows, error: rpcError } = await publicClient.rpc(
+        'get_public_hall_schedule',
+        {
+          p_hall_id: hallId,
+          p_day_start: dayStart.toISOString(),
+          p_day_end: dayEnd.toISOString(),
+        }
+      );
+
+      if (rpcError) {
+        throw new DatabaseSetupError(
+          `Supabase schedule RPC failed (${rpcError.code || 'DB_ERROR'}): ${rpcError.message}`,
+          rpcError.code || 'DB_ERROR'
+        );
+      }
+
+      const entries = (scheduleRows || []) as PublicScheduleEntry[];
+      approvedRanges = entries
+        .filter((e) => e.kind === 'APPROVED_BOOKING')
+        .map((e) => ({
+          startMs: new Date(e.start_time).getTime(),
+          endMs: new Date(e.end_time).getTime(),
+          title: e.title,
+        }));
+      maintRanges = entries
+        .filter((e) => e.kind === 'MAINTENANCE_WINDOW')
+        .map((e) => ({
+          startMs: new Date(e.start_time).getTime(),
+          endMs: new Date(e.end_time).getTime(),
+          title: e.title,
+        }));
     }
-  }
+  } else {
+    const [allBookings, allMaintenance] = await Promise.all([
+      getBookingsForHall(hallId),
+      getMaintenanceForHall(hallId),
+    ]);
 
-  if (!isSupabaseConfigured() || (approvedBookings.length === 0 && activeMaintenance.length === 0)) {
-    const allBookings = await getBookingsForHall(hallId);
-    approvedBookings = allBookings.filter((b) => {
-      if (b.status !== 'APPROVED') return false;
-      const bStart = new Date(b.startTime).getTime();
-      const bEnd = new Date(b.endTime).getTime();
-      return bStart < dayEnd.getTime() && bEnd > dayStart.getTime();
-    });
+    approvedRanges = allBookings
+      .filter((b) => b.status === 'APPROVED')
+      .map((b) => ({
+        startMs: new Date(b.startTime).getTime(),
+        endMs: new Date(b.endTime).getTime(),
+        title: b.eventName,
+      }))
+      .filter((r) => r.startMs < dayEnd.getTime() && r.endMs > dayStart.getTime());
 
-    const allMaintenance = await getMaintenanceForHall(hallId);
-    activeMaintenance = allMaintenance.filter((m) => {
-      if (m.status !== 'SCHEDULED' && m.status !== 'IN_PROGRESS') return false;
-      const mStart = new Date(m.startTime).getTime();
-      const mEnd = new Date(m.endTime).getTime();
-      return mStart < dayEnd.getTime() && mEnd > dayStart.getTime();
-    });
+    maintRanges = allMaintenance
+      .filter((m) => m.status === 'SCHEDULED' || m.status === 'IN_PROGRESS')
+      .map((m) => ({
+        startMs: new Date(m.startTime).getTime(),
+        endMs: new Date(m.endTime).getTime(),
+        title: m.title,
+      }))
+      .filter((r) => r.startMs < dayEnd.getTime() && r.endMs > dayStart.getTime());
   }
 
   const slots: TimeSlot[] = [];
@@ -226,22 +332,16 @@ export async function getDaySchedule(hallId: string, dateStr: string): Promise<T
     const slotStartStr = `${hour.toString().padStart(2, '0')}:00`;
     const slotEndStr = `${(hour + 1).toString().padStart(2, '0')}:00`;
 
-    const slotStartMs = new Date(`${dateStr}T${slotStartStr}:00Z`).getTime();
-    const slotEndMs = new Date(`${dateStr}T${slotEndStr}:00Z`).getTime();
+    const slotStartMs = zonedLocalToUtcDate(dateStr, slotStartStr).getTime();
+    const slotEndMs = zonedLocalToUtcDate(dateStr, slotEndStr).getTime();
 
-    // Check conflict with maintenance
-    const maintConflict = activeMaintenance.find((m) => {
-      const mStart = new Date(m.startTime).getTime();
-      const mEnd = new Date(m.endTime).getTime();
-      return slotStartMs < mEnd && slotEndMs > mStart;
-    });
+    const maintConflict = maintRanges.find(
+      (m) => slotStartMs < m.endMs && slotEndMs > m.startMs
+    );
 
-    // Check conflict with approved bookings
-    const bookingConflict = approvedBookings.find((b) => {
-      const bStart = new Date(b.startTime).getTime();
-      const bEnd = new Date(b.endTime).getTime();
-      return slotStartMs < bEnd && slotEndMs > bStart;
-    });
+    const bookingConflict = approvedRanges.find(
+      (b) => slotStartMs < b.endMs && slotEndMs > b.startMs
+    );
 
     if (maintConflict) {
       slots.push({
@@ -257,7 +357,7 @@ export async function getDaySchedule(hallId: string, dateStr: string): Promise<T
         endTime: slotEndStr,
         isAvailable: false,
         conflictReason: 'APPROVED_BOOKING',
-        conflictDetails: `Confirmed Event: ${bookingConflict.eventName}`,
+        conflictDetails: `Confirmed Event: ${bookingConflict.title}`,
         bookingStatus: 'APPROVED',
       });
     } else {
@@ -270,4 +370,30 @@ export async function getDaySchedule(hallId: string, dateStr: string): Promise<T
   }
 
   return slots;
+}
+
+/**
+ * Evaluates date availability across all active halls for directory filtering.
+ * Returns a map of hallId -> { availableSlots, totalSlots, hasAvailability }.
+ */
+export async function getHallsAvailabilityForDate(
+  dateStr: string
+): Promise<Record<string, { availableHours: number; totalHours: number; hasAvailability: boolean }>> {
+  const halls = await getAllHalls();
+  const entries = await Promise.all(
+    halls.map(async (hall) => {
+      const slots = await getDaySchedule(hall.id, dateStr);
+      const availableHours = slots.filter((s) => s.isAvailable).length;
+      return [
+        hall.id,
+        {
+          availableHours,
+          totalHours: slots.length,
+          hasAvailability: availableHours > 0,
+        },
+      ] as const;
+    })
+  );
+
+  return Object.fromEntries(entries);
 }

@@ -5,7 +5,6 @@ import {
   Wrench,
   Plus,
   Search,
-  Filter,
   Calendar,
   Clock,
   Building,
@@ -15,12 +14,18 @@ import {
   X,
   Edit3,
   XCircle,
-  Layers,
-  Info,
 } from 'lucide-react';
 import { MaintenanceWindow, Hall, Booking } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import {
+  formatDateInAppTz,
+  formatTimeInAppTz,
+  getAppTodayDateString,
+  getDatePartInAppTz,
+  getTimePartInAppTz,
+  getTimezoneLabel,
+  zonedLocalToUtcIso,
+} from '@/lib/utils/timezone';
 
 interface MaintenanceManagementClientProps {
   initialMaintenance: MaintenanceWindow[];
@@ -37,42 +42,39 @@ interface MaintenanceFormData {
   endTime: string;
 }
 
-const defaultFormData: MaintenanceFormData = {
-  hallId: '',
-  title: '',
-  reason: '',
-  startDate: '2026-12-01',
-  startTime: '08:00',
-  endDate: '2026-12-01',
-  endTime: '17:00',
-};
-
 export function MaintenanceManagementClient({
   initialMaintenance,
   halls,
 }: MaintenanceManagementClientProps) {
+  const todayStr = getAppTodayDateString();
+  const tzLabel = getTimezoneLabel();
+
+  const makeDefaultFormData = (): MaintenanceFormData => ({
+    hallId: halls[0]?.id || '',
+    title: '',
+    reason: '',
+    startDate: todayStr,
+    startTime: '08:00',
+    endDate: todayStr,
+    endTime: '17:00',
+  });
+
   const [maintenanceList, setMaintenanceList] = React.useState<MaintenanceWindow[]>(initialMaintenance);
   const [activeTab, setActiveTab] = React.useState<'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'ALL'>('ACTIVE');
   const [selectedHallFilter, setSelectedHallFilter] = React.useState<string>('ALL');
   const [searchQuery, setSearchQuery] = React.useState<string>('');
 
-  // Modal states
   const [isModalOpen, setIsModalOpen] = React.useState<boolean>(false);
   const [editingItem, setEditingItem] = React.useState<MaintenanceWindow | null>(null);
-  const [formData, setFormData] = React.useState<MaintenanceFormData>({
-    ...defaultFormData,
-    hallId: halls[0]?.id || '',
-  });
+  const [formData, setFormData] = React.useState<MaintenanceFormData>(makeDefaultFormData);
   const [submitting, setSubmitting] = React.useState<boolean>(false);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
   const [conflictBookings, setConflictBookings] = React.useState<Booking[]>([]);
 
-  // Cancel action modal
   const [cancellingItem, setCancellingItem] = React.useState<MaintenanceWindow | null>(null);
   const [cancelReason, setCancelReason] = React.useState<string>('Maintenance completed early or rescheduled');
   const [cancelling, setCancelling] = React.useState<boolean>(false);
 
-  // Toast feedback
   const [feedback, setFeedback] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   React.useEffect(() => {
@@ -82,10 +84,8 @@ export function MaintenanceManagementClient({
     }
   }, [feedback]);
 
-  // Filtered maintenance list
   const filteredList = React.useMemo(() => {
     return maintenanceList.filter((m) => {
-      // Tab filter
       if (activeTab === 'ACTIVE') {
         if (m.status !== 'SCHEDULED' && m.status !== 'IN_PROGRESS') return false;
       } else if (activeTab === 'COMPLETED') {
@@ -94,12 +94,10 @@ export function MaintenanceManagementClient({
         if (m.status !== 'CANCELLED') return false;
       }
 
-      // Hall filter
       if (selectedHallFilter !== 'ALL' && m.hallId !== selectedHallFilter) {
         return false;
       }
 
-      // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchTitle = m.title.toLowerCase().includes(q);
@@ -121,10 +119,7 @@ export function MaintenanceManagementClient({
 
   const openScheduleModal = () => {
     setEditingItem(null);
-    setFormData({
-      ...defaultFormData,
-      hallId: halls[0]?.id || '',
-    });
+    setFormData(makeDefaultFormData());
     setErrorMsg(null);
     setConflictBookings([]);
     setIsModalOpen(true);
@@ -132,16 +127,14 @@ export function MaintenanceManagementClient({
 
   const openEditModal = (item: MaintenanceWindow) => {
     setEditingItem(item);
-    const start = new Date(item.startTime);
-    const end = new Date(item.endTime);
     setFormData({
       hallId: item.hallId,
       title: item.title,
       reason: item.reason,
-      startDate: start.toISOString().split('T')[0],
-      startTime: start.toISOString().split('T')[1].substring(0, 5),
-      endDate: end.toISOString().split('T')[0],
-      endTime: end.toISOString().split('T')[1].substring(0, 5),
+      startDate: getDatePartInAppTz(item.startTime),
+      startTime: getTimePartInAppTz(item.startTime),
+      endDate: getDatePartInAppTz(item.endTime),
+      endTime: getTimePartInAppTz(item.endTime),
     });
     setErrorMsg(null);
     setConflictBookings([]);
@@ -155,8 +148,8 @@ export function MaintenanceManagementClient({
     setSubmitting(true);
 
     try {
-      const startIso = new Date(`${formData.startDate}T${formData.startTime}:00Z`).toISOString();
-      const endIso = new Date(`${formData.endDate}T${formData.endTime}:00Z`).toISOString();
+      const startIso = zonedLocalToUtcIso(formData.startDate, formData.startTime);
+      const endIso = zonedLocalToUtcIso(formData.endDate, formData.endTime);
 
       if (new Date(startIso) >= new Date(endIso)) {
         throw new Error('Maintenance end time must occur strictly after start time.');
@@ -171,7 +164,6 @@ export function MaintenanceManagementClient({
       };
 
       if (editingItem) {
-        // PUT update
         const res = await fetch(`/api/admin/maintenance/${editingItem.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -193,7 +185,6 @@ export function MaintenanceManagementClient({
           message: `Maintenance window "${data.maintenance.title}" updated successfully.`,
         });
       } else {
-        // POST create
         const res = await fetch('/api/admin/maintenance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -254,7 +245,6 @@ export function MaintenanceManagementClient({
 
   return (
     <div className="space-y-6">
-      {/* Top Banner Alert */}
       {feedback && (
         <div
           className={`p-4 rounded-md border flex items-center justify-between transition-all ${
@@ -265,13 +255,14 @@ export function MaintenanceManagementClient({
         >
           <div className="flex items-center gap-2">
             {feedback.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+              <CheckCircle2 className="w-5 h-5 shrink-0" />
             ) : (
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <AlertCircle className="w-5 h-5 shrink-0" />
             )}
             <span className="text-sm font-medium">{feedback.message}</span>
           </div>
           <button
+            type="button"
             onClick={() => setFeedback(null)}
             className="text-stone-500 hover:text-stone-800 text-xs font-semibold px-2 py-1"
           >
@@ -280,7 +271,6 @@ export function MaintenanceManagementClient({
         </div>
       )}
 
-      {/* Stats Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-lg border border-[#E5DFD5] shadow-xs">
           <div className="flex items-center justify-between">
@@ -335,25 +325,24 @@ export function MaintenanceManagementClient({
         </div>
       </div>
 
-      {/* Filter and Action Bar */}
       <div className="bg-white p-4 rounded-lg border border-[#E5DFD5] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         <div className="flex flex-1 flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Search */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#989082]" />
             <input
               type="text"
               placeholder="Search maintenance title, reason, or venue..."
+              aria-label="Search maintenance windows"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-4 py-2 text-sm bg-[#FBF9F5] border border-[#E5DFD5] rounded-md focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
             />
           </div>
 
-          {/* Hall selector dropdown */}
           <select
             value={selectedHallFilter}
             onChange={(e) => setSelectedHallFilter(e.target.value)}
+            aria-label="Filter maintenance by facility"
             className="text-xs py-2 px-3 bg-[#FBF9F5] border border-[#E5DFD5] rounded-md text-[#1C1917] focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
           >
             <option value="ALL">All Facilities</option>
@@ -364,52 +353,29 @@ export function MaintenanceManagementClient({
             ))}
           </select>
 
-          {/* Tab filter pills */}
           <div className="flex items-center gap-1 bg-[#FBF9F5] p-1 rounded-md border border-[#E5DFD5]">
-            <button
-              onClick={() => setActiveTab('ACTIVE')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
-                activeTab === 'ACTIVE'
-                  ? 'bg-white text-[#18283E] shadow-xs font-semibold'
-                  : 'text-[#615B52] hover:text-[#1C1917]'
-              }`}
-            >
-              Upcoming ({scheduledCount + inProgressCount})
-            </button>
-            <button
-              onClick={() => setActiveTab('COMPLETED')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
-                activeTab === 'COMPLETED'
-                  ? 'bg-white text-[#1A3B2B] shadow-xs font-semibold'
-                  : 'text-[#615B52] hover:text-[#1C1917]'
-              }`}
-            >
-              Done ({completedCount})
-            </button>
-            <button
-              onClick={() => setActiveTab('CANCELLED')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
-                activeTab === 'CANCELLED'
-                  ? 'bg-white text-[#989082] shadow-xs font-semibold'
-                  : 'text-[#615B52] hover:text-[#1C1917]'
-              }`}
-            >
-              Cancelled ({cancelledCount})
-            </button>
-            <button
-              onClick={() => setActiveTab('ALL')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
-                activeTab === 'ALL'
-                  ? 'bg-white text-[#1C1917] shadow-xs font-semibold'
-                  : 'text-[#615B52] hover:text-[#1C1917]'
-              }`}
-            >
-              All ({maintenanceList.length})
-            </button>
+            {([
+              { key: 'ACTIVE', label: `Upcoming (${scheduledCount + inProgressCount})` },
+              { key: 'COMPLETED', label: `Done (${completedCount})` },
+              { key: 'CANCELLED', label: `Cancelled (${cancelledCount})` },
+              { key: 'ALL', label: `All (${maintenanceList.length})` },
+            ] as const).map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
+                  activeTab === tab.key
+                    ? 'bg-white text-[#18283E] shadow-xs font-semibold'
+                    : 'text-[#615B52] hover:text-[#1C1917]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Action Button */}
         <Button
           onClick={openScheduleModal}
           className="bg-[#1A3B2B] hover:bg-[#142e22] text-white flex items-center justify-center gap-2"
@@ -419,7 +385,6 @@ export function MaintenanceManagementClient({
         </Button>
       </div>
 
-      {/* Maintenance List */}
       {filteredList.length === 0 ? (
         <div className="bg-white rounded-lg border border-[#E5DFD5] p-12 text-center space-y-3">
           <Wrench className="w-12 h-12 text-[#989082] mx-auto opacity-50" />
@@ -429,25 +394,12 @@ export function MaintenanceManagementClient({
               ? `No records matched your search query "${searchQuery}".`
               : 'There are no maintenance closures in this category.'}
           </p>
-          {searchQuery && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSearchQuery('')}
-              className="mt-2"
-            >
-              Clear Filter
-            </Button>
-          )}
         </div>
       ) : (
         <div className="space-y-3">
           {filteredList.map((item) => {
-            const startDate = new Date(item.startTime);
-            const endDate = new Date(item.endTime);
             const isCancelled = item.status === 'CANCELLED';
             const isCompleted = item.status === 'COMPLETED';
-            const isOngoing = item.status === 'IN_PROGRESS';
 
             return (
               <div
@@ -486,37 +438,18 @@ export function MaintenanceManagementClient({
                   <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-[#615B52]">
                     <div className="flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5 text-[#989082]" />
-                      <span>
-                        {startDate.toLocaleDateString('en-US', {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                          timeZone: 'UTC',
-                        })}
-                      </span>
+                      <span>{formatDateInAppTz(item.startTime)}</span>
                     </div>
 
                     <div className="flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5 text-[#989082]" />
                       <span>
-                        {startDate.toLocaleTimeString('en-US', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          timeZone: 'UTC',
-                        })}{' '}
-                        -{' '}
-                        {endDate.toLocaleTimeString('en-US', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          timeZone: 'UTC',
-                        })}
+                        {formatTimeInAppTz(item.startTime)} – {formatTimeInAppTz(item.endTime)} ({tzLabel})
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Actions */}
                 <div className="flex items-center gap-2 self-end md:self-center">
                   {!isCancelled && !isCompleted && (
                     <>
@@ -562,7 +495,6 @@ export function MaintenanceManagementClient({
         </div>
       )}
 
-      {/* Schedule / Edit Maintenance Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
           <div className="bg-white rounded-lg border border-[#E5DFD5] shadow-xl w-full max-w-xl my-8">
@@ -572,22 +504,23 @@ export function MaintenanceManagementClient({
                   {editingItem ? 'Edit Maintenance Closure' : 'Schedule Facility Maintenance'}
                 </h3>
                 <p className="text-xs text-[#615B52]">
-                  Maintenance windows immediately block public booking requests for overlapping times.
+                  Times entered in {tzLabel}. Maintenance windows immediately block public availability.
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
+                aria-label="Close modal"
                 className="text-[#989082] hover:text-[#1C1917] p-1"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Error & Conflict Alert */}
             {errorMsg && (
               <div className="m-5 p-4 rounded bg-[#FDF2F0] border border-[#F8C9C4] text-[#B42318] text-xs space-y-2">
                 <div className="flex items-center gap-2 font-semibold">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{errorMsg}</span>
                 </div>
 
@@ -600,24 +533,10 @@ export function MaintenanceManagementClient({
                       {conflictBookings.map((c) => (
                         <li key={c.id}>
                           <strong>{c.referenceNumber}</strong>: {c.eventName} (
-                          {new Date(c.startTime).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            timeZone: 'UTC',
-                          })}{' '}
-                          -{' '}
-                          {new Date(c.endTime).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            timeZone: 'UTC',
-                          })}
-                          )
+                          {formatTimeInAppTz(c.startTime)} – {formatTimeInAppTz(c.endTime)})
                         </li>
                       ))}
                     </ul>
-                    <p className="text-[11px] text-[#615B52] italic pt-1">
-                      To proceed, contact requesters and reschedule or cancel the existing bookings first.
-                    </p>
                   </div>
                 )}
               </div>
@@ -653,13 +572,12 @@ export function MaintenanceManagementClient({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-[#1C1917]">Internal Operational Notes / Reason *</label>
+                <label className="text-xs font-semibold text-[#1C1917]">Operational Notes / Reason *</label>
                 <textarea
                   required
                   rows={3}
                   value={formData.reason}
                   onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                  placeholder="Provide detailed description of contractors, public safety considerations, or noise levels..."
                   className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
                 />
               </div>
@@ -672,18 +590,18 @@ export function MaintenanceManagementClient({
                     required
                     value={formData.startDate}
                     onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#1C1917]">Start Time (UTC) *</label>
+                  <label className="text-xs font-semibold text-[#1C1917]">Start Time ({tzLabel}) *</label>
                   <input
                     type="time"
                     required
                     value={formData.startTime}
                     onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
               </div>
@@ -696,18 +614,18 @@ export function MaintenanceManagementClient({
                     required
                     value={formData.endDate}
                     onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#1C1917]">End Time (UTC) *</label>
+                  <label className="text-xs font-semibold text-[#1C1917]">End Time ({tzLabel}) *</label>
                   <input
                     type="time"
                     required
                     value={formData.endTime}
                     onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                    className="w-full text-xs p-2.5 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
                   />
                 </div>
               </div>
@@ -739,7 +657,6 @@ export function MaintenanceManagementClient({
         </div>
       )}
 
-      {/* Cancel Maintenance Window Modal */}
       {cancellingItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-lg border border-[#E5DFD5] shadow-xl w-full max-w-md p-6 space-y-4">
@@ -755,7 +672,7 @@ export function MaintenanceManagementClient({
 
             <p className="text-xs text-[#615B52] leading-relaxed">
               Cancelling this maintenance window immediately restores the scheduled time slots for{' '}
-              <strong>{cancellingItem.hallName}</strong> on the public citizen availability calendar.
+              <strong>{cancellingItem.hallName}</strong> on public availability calendars.
             </p>
 
             <div className="space-y-1.5">
@@ -764,8 +681,7 @@ export function MaintenanceManagementClient({
                 type="text"
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="e.g. Repairs completed early or contractor postponed"
-                className="w-full text-xs p-2 bg-[#FBF9F5] border border-[#E5DFD5] rounded focus:outline-none focus:ring-1 focus:ring-[#1A3B2B]"
+                className="w-full text-xs p-2 bg-[#FBF9F5] border border-[#E5DFD5] rounded"
               />
             </div>
 

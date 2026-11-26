@@ -2,16 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import {
-  Calendar,
-  Clock,
-  Users,
-  CheckCircle2,
-  AlertTriangle,
-  FileText,
-  Copy,
-  ExternalLink,
-} from 'lucide-react';
+import { Clock, CheckCircle2, Copy, ExternalLink } from 'lucide-react';
 import { Hall } from '@/types';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
@@ -19,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
+import { getAppTodayDateString, getTimezoneLabel } from '@/lib/utils/timezone';
 
 export interface BookingRequestModalProps {
   hall: Hall;
@@ -29,15 +21,21 @@ export interface BookingRequestModalProps {
   initialEndTime?: string;
 }
 
-export function BookingRequestModal({
+function BookingRequestFormBody({
   hall,
-  isOpen,
   onClose,
-  initialDate = '2026-11-28',
-  initialStartTime = '10:00',
-  initialEndTime = '15:00',
-}: BookingRequestModalProps) {
-  // Form state
+  initialDate,
+  initialStartTime,
+  initialEndTime,
+  onSubmitted,
+}: {
+  hall: Hall;
+  onClose: () => void;
+  initialDate: string;
+  initialStartTime: string;
+  initialEndTime: string;
+  onSubmitted: (booking: { referenceNumber: string; eventName: string; status: string }) => void;
+}) {
   const [formData, setFormData] = React.useState({
     hallId: hall.id,
     requesterName: '',
@@ -57,33 +55,10 @@ export function BookingRequestModal({
   const [formErrors, setFormErrors] = React.useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [conflictError, setConflictError] = React.useState<string | null>(null);
-  const [submittedBooking, setSubmittedBooking] = React.useState<{
-    referenceNumber: string;
-    eventName: string;
-    status: string;
-  } | null>(null);
-  const [copiedRef, setCopiedRef] = React.useState(false);
-
-  // Sync initial props when opened
-  React.useEffect(() => {
-    if (isOpen) {
-      setFormData((prev) => ({
-        ...prev,
-        hallId: hall.id,
-        bookingDate: initialDate || prev.bookingDate,
-        startTime: initialStartTime || prev.startTime,
-        endTime: initialEndTime || prev.endTime,
-      }));
-      setSubmittedBooking(null);
-      setConflictError(null);
-      setFormErrors({});
-    }
-  }, [isOpen, hall.id, initialDate, initialStartTime, initialEndTime]);
+  const tzLabel = getTimezoneLabel();
 
   const handleChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-    >
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
     const { name, value, type } = e.target;
     const checked = (e.target as HTMLInputElement).checked;
@@ -93,7 +68,6 @@ export function BookingRequestModal({
       [name]: type === 'checkbox' ? checked : value,
     }));
 
-    // Clear error on field change
     if (formErrors[name]) {
       setFormErrors((prev) => {
         const copy = { ...prev };
@@ -105,10 +79,10 @@ export function BookingRequestModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setConflictError(null);
     setFormErrors({});
 
-    // Client validation
     const errors: Record<string, string> = {};
     if (!formData.requesterName.trim()) {
       errors.requesterName = 'Full name is required';
@@ -122,13 +96,15 @@ export function BookingRequestModal({
     if (!formData.eventName.trim()) {
       errors.eventName = 'Event name is required';
     }
-    if (formData.expectedAttendees <= 0) {
+    if (Number(formData.expectedAttendees) <= 0) {
       errors.expectedAttendees = 'Attendee count must be greater than 0';
-    } else if (formData.expectedAttendees > hall.capacity) {
+    } else if (Number(formData.expectedAttendees) > hall.capacity) {
       errors.expectedAttendees = `Exceeds max hall capacity of ${hall.capacity}`;
     }
     if (!formData.bookingDate) {
       errors.bookingDate = 'Please select an event date';
+    } else if (formData.bookingDate < getAppTodayDateString()) {
+      errors.bookingDate = 'Booking date cannot be in the past';
     }
     if (!formData.startTime) {
       errors.startTime = 'Start time is required';
@@ -170,13 +146,16 @@ export function BookingRequestModal({
             if (issue.path[0]) apiErrors[issue.path[0]] = issue.message;
           });
           setFormErrors(apiErrors);
+          if (Object.keys(apiErrors).length === 0) {
+            setConflictError(result.error || 'Validation failed.');
+          }
         } else {
           setConflictError(result.error || 'Failed to submit booking request.');
         }
         return;
       }
 
-      setSubmittedBooking({
+      onSubmitted({
         referenceNumber: result.referenceNumber,
         eventName: formData.eventName,
         status: result.status,
@@ -186,6 +165,225 @@ export function BookingRequestModal({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {conflictError && (
+        <Alert variant="error" title="Slot Unavailable">
+          {conflictError}
+        </Alert>
+      )}
+
+      <div className="bg-[#FBF9F5] p-3 rounded-md border border-[#E5DFD5] text-xs text-[#615B52] leading-relaxed">
+        <span className="font-semibold text-[#1C1917]">Civic Booking Notice:</span>{' '}
+        Submitting this form creates a <strong>PENDING</strong> request for review. It is not a confirmed booking until approved by an administrator.
+      </div>
+
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-3 pb-1 border-b border-[#E5DFD5]">
+          1. Requester Contact Information
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <Input
+            label="Full Name"
+            name="requesterName"
+            placeholder="Aarav Sharma"
+            required
+            value={formData.requesterName}
+            onChange={handleChange}
+            error={formErrors.requesterName}
+          />
+          <Input
+            label="Email Address"
+            name="requesterEmail"
+            type="email"
+            placeholder="aarav.sharma@example.org"
+            required
+            value={formData.requesterEmail}
+            onChange={handleChange}
+            error={formErrors.requesterEmail}
+          />
+          <Input
+            label="Phone Number"
+            name="requesterPhone"
+            type="tel"
+            placeholder="+91 98110 12345"
+            required
+            value={formData.requesterPhone}
+            onChange={handleChange}
+            error={formErrors.requesterPhone}
+          />
+          <Input
+            label="Organization / Group (Optional)"
+            name="requesterOrg"
+            placeholder="Neighborhood Association, Club, etc."
+            value={formData.requesterOrg}
+            onChange={handleChange}
+          />
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-3 pb-1 border-b border-[#E5DFD5]">
+          2. Event Specifications
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div className="sm:col-span-2">
+            <Input
+              label="Event Title"
+              name="eventName"
+              placeholder="e.g. Annual Community Forum & General Meeting"
+              required
+              value={formData.eventName}
+              onChange={handleChange}
+              error={formErrors.eventName}
+            />
+          </div>
+
+          <Select
+            label="Event Category"
+            name="eventType"
+            required
+            value={formData.eventType}
+            onChange={handleChange}
+            options={[
+              { value: 'Community Meeting', label: 'Community Meeting' },
+              { value: 'Cultural & Heritage Celebration', label: 'Cultural & Heritage Celebration' },
+              { value: 'Civic / Non-profit Workshop', label: 'Civic / Non-profit Workshop' },
+              { value: 'Private Gathering / Banquet', label: 'Private Gathering / Banquet' },
+              { value: 'Performance / Rehearsal', label: 'Performance / Rehearsal' },
+              { value: 'Educational Seminar', label: 'Educational Seminar' },
+              { value: 'Other Civic Event', label: 'Other Civic Event' },
+            ]}
+          />
+
+          <Input
+            label={`Expected Attendees (Max ${hall.capacity})`}
+            name="expectedAttendees"
+            type="number"
+            min={1}
+            max={hall.capacity}
+            required
+            value={formData.expectedAttendees}
+            onChange={handleChange}
+            error={formErrors.expectedAttendees}
+          />
+        </div>
+      </div>
+
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-3 pb-1 border-b border-[#E5DFD5]">
+          3. Date &amp; Time Window ({tzLabel})
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          <Input
+            label="Reservation Date"
+            name="bookingDate"
+            type="date"
+            min={getAppTodayDateString()}
+            required
+            value={formData.bookingDate}
+            onChange={handleChange}
+            error={formErrors.bookingDate}
+          />
+          <Input
+            label="Start Time"
+            name="startTime"
+            type="time"
+            required
+            value={formData.startTime}
+            onChange={handleChange}
+            error={formErrors.startTime}
+            helperText={`Opens at ${hall.operatingHours.open}`}
+          />
+          <Input
+            label="End Time"
+            name="endTime"
+            type="time"
+            required
+            value={formData.endTime}
+            onChange={handleChange}
+            error={formErrors.endTime}
+            helperText={`Closes at ${hall.operatingHours.close}`}
+          />
+        </div>
+      </div>
+
+      <div>
+        <Textarea
+          label="Special Equipment or Setup Requirements (Optional)"
+          name="specialRequests"
+          placeholder="e.g. Stage microphone requested, banquet table layout, early load-in needed..."
+          value={formData.specialRequests}
+          onChange={handleChange}
+          helperText="Audio/visual technicians and kitchen access require administrative pre-clearance."
+        />
+      </div>
+
+      <div className="pt-2">
+        <label className="flex items-start gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            name="agreeToTerms"
+            checked={formData.agreeToTerms}
+            onChange={handleChange}
+            className="mt-0.5 rounded border-[#CDC5B7] text-[#1A3B2B] focus:ring-[#1A3B2B] h-4 w-4"
+          />
+          <span className="text-xs text-[#615B52] leading-relaxed">
+            I understand that this request enters administrative review and is not confirmed until approved. I agree to abide by facility quiet hours, cleanup regulations, and safety protocols.
+          </span>
+        </label>
+        {formErrors.agreeToTerms && (
+          <p className="mt-1 text-xs text-[#D92D20] font-medium">
+            {formErrors.agreeToTerms}
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#E5DFD5]">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onClose}
+          disabled={isSubmitting}
+          className="text-xs"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          variant="primary"
+          isLoading={isSubmitting}
+          className="text-xs"
+        >
+          Submit Booking Request
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export function BookingRequestModal({
+  hall,
+  isOpen,
+  onClose,
+  initialDate,
+  initialStartTime = '10:00',
+  initialEndTime = '15:00',
+}: BookingRequestModalProps) {
+  const effectiveDate = initialDate || getAppTodayDateString();
+  const [submittedBooking, setSubmittedBooking] = React.useState<{
+    referenceNumber: string;
+    eventName: string;
+    status: string;
+  } | null>(null);
+  const [copiedRef, setCopiedRef] = React.useState(false);
+
+  const handleClose = () => {
+    setSubmittedBooking(null);
+    setCopiedRef(false);
+    onClose();
   };
 
   const copyRefToClipboard = () => {
@@ -199,12 +397,12 @@ export function BookingRequestModal({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
       title={submittedBooking ? 'Booking Request Submitted' : `Request Booking: ${hall.name}`}
       description={
         submittedBooking
-          ? 'Your request is officially queued in the municipal review registry.'
-          : `Capacity: ${hall.capacity} guests • Rate: $${hall.hourlyRate}/hr • ${hall.location}`
+          ? 'Your request is officially queued as PENDING in the review registry.'
+          : `Capacity: ${hall.capacity} guests • Rate: ₹${hall.hourlyRate}/hr • ${hall.location}`
       }
       maxWidth="xl"
     >
@@ -213,14 +411,13 @@ export function BookingRequestModal({
           <div className="p-6 rounded-md bg-[#EBF3EE] border border-[#C3D9CB] text-center">
             <CheckCircle2 className="w-12 h-12 text-[#1A3B2B] mx-auto mb-3" />
             <h4 className="text-xl font-bold text-[#1A3B2B] tracking-tight">
-              Submission Received & Queued
+              Submission Received &amp; Pending Review
             </h4>
             <p className="text-xs text-[#132B20] mt-1.5 max-w-md mx-auto leading-relaxed">
-              Your request for <strong>{submittedBooking.eventName}</strong> has been logged.
-              A submitted request does not guarantee access until approved by the Facilities Division.
+              Your request for <strong>{submittedBooking.eventName}</strong> has been logged with status{' '}
+              <strong>{submittedBooking.status}</strong>. A submitted request does not guarantee access until approved.
             </p>
 
-            {/* Reference Badge */}
             <div className="mt-5 p-3 bg-white rounded-md border border-[#C3D9CB] inline-flex items-center gap-3">
               <span className="text-xs text-[#615B52]">Reference Number:</span>
               <span className="font-mono text-base font-bold text-[#1C1917] tracking-wider">
@@ -243,20 +440,18 @@ export function BookingRequestModal({
             )}
           </div>
 
-          {/* Next Steps Card */}
           <div className="bg-[#FBF9F5] p-4 rounded-md border border-[#E5DFD5] space-y-2.5 text-xs text-[#615B52]">
             <h5 className="font-semibold text-[#1C1917] flex items-center gap-1.5">
               <Clock className="w-4 h-4 text-[#1A3B2B]" />
               What Happens Next:
             </h5>
             <ol className="list-decimal list-inside space-y-1.5 pl-1 leading-relaxed">
-              <li>Our facility coordinator verifies room configuration, quiet hours compliance, and staffing requirements.</li>
-              <li>You will receive an email within 2 business days indicating approval, conditional requirements, or fee invoice.</li>
-              <li>You can check the live decision status anytime using your reference code.</li>
+              <li>Our facility coordinator verifies room capacity, operating hours, and schedule conflicts.</li>
+              <li>Your request status updates once an administrative decision is recorded.</li>
+              <li>Check live status anytime on your confirmation page, tracking portal, or My Requests.</li>
             </ol>
           </div>
 
-          {/* Modal Actions */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-[#E5DFD5]">
             <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
               <Link
@@ -264,7 +459,7 @@ export function BookingRequestModal({
                 className="w-full sm:w-auto"
               >
                 <Button variant="primary" className="w-full gap-2 text-xs">
-                  <span>View Official Confirmation</span>
+                  <span>View Confirmation Page</span>
                   <ExternalLink className="w-3.5 h-3.5" />
                 </Button>
               </Link>
@@ -277,207 +472,21 @@ export function BookingRequestModal({
                 </Button>
               </Link>
             </div>
-            <Button variant="secondary" onClick={onClose} className="w-full sm:w-auto text-xs">
+            <Button variant="secondary" onClick={handleClose} className="w-full sm:w-auto text-xs">
               Close Window
             </Button>
           </div>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {conflictError && (
-            <Alert variant="error" title="Slot Unavailable">
-              {conflictError}
-            </Alert>
-          )}
-
-          <div className="bg-[#FBF9F5] p-3 rounded-md border border-[#E5DFD5] text-xs text-[#615B52] leading-relaxed">
-            <span className="font-semibold text-[#1C1917]">Civic Booking Notice:</span> Submission of this request registers your event for facility review. Availability is confirmed only upon official administrative approval.
-          </div>
-
-          {/* Requester Information Section */}
-          <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-3 pb-1 border-b border-[#E5DFD5]">
-              1. Requester Contact Information
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <Input
-                label="Full Name"
-                name="requesterName"
-                placeholder="Jane Doe"
-                required
-                value={formData.requesterName}
-                onChange={handleChange}
-                error={formErrors.requesterName}
-              />
-              <Input
-                label="Email Address"
-                name="requesterEmail"
-                type="email"
-                placeholder="jane.doe@example.org"
-                required
-                value={formData.requesterEmail}
-                onChange={handleChange}
-                error={formErrors.requesterEmail}
-              />
-              <Input
-                label="Phone Number"
-                name="requesterPhone"
-                type="tel"
-                placeholder="(555) 012-3456"
-                required
-                value={formData.requesterPhone}
-                onChange={handleChange}
-                error={formErrors.requesterPhone}
-              />
-              <Input
-                label="Organization / Group (Optional)"
-                name="requesterOrg"
-                placeholder="Neighborhood Association, Club, etc."
-                value={formData.requesterOrg}
-                onChange={handleChange}
-              />
-            </div>
-          </div>
-
-          {/* Event Details Section */}
-          <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-3 pb-1 border-b border-[#E5DFD5]">
-              2. Event Specifications
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <div className="sm:col-span-2">
-                <Input
-                  label="Event Title"
-                  name="eventName"
-                  placeholder="e.g. Annual Community Forum & General Meeting"
-                  required
-                  value={formData.eventName}
-                  onChange={handleChange}
-                  error={formErrors.eventName}
-                />
-              </div>
-
-              <Select
-                label="Event Category"
-                name="eventType"
-                required
-                value={formData.eventType}
-                onChange={handleChange}
-                options={[
-                  { value: 'Community Meeting', label: 'Community Meeting' },
-                  { value: 'Cultural & Heritage Celebration', label: 'Cultural & Heritage Celebration' },
-                  { value: 'Civic / Non-profit Workshop', label: 'Civic / Non-profit Workshop' },
-                  { value: 'Private Gathering / Banquet', label: 'Private Gathering / Banquet' },
-                  { value: 'Performance / Rehearsal', label: 'Performance / Rehearsal' },
-                  { value: 'Educational Seminar', label: 'Educational Seminar' },
-                  { value: 'Other Civic Event', label: 'Other Civic Event' },
-                ]}
-              />
-
-              <Input
-                label={`Expected Attendees (Max ${hall.capacity})`}
-                name="expectedAttendees"
-                type="number"
-                min={1}
-                max={hall.capacity}
-                required
-                value={formData.expectedAttendees}
-                onChange={handleChange}
-                error={formErrors.expectedAttendees}
-              />
-            </div>
-          </div>
-
-          {/* Schedule Section */}
-          <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-3 pb-1 border-b border-[#E5DFD5]">
-              3. Date & Time Window
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              <Input
-                label="Reservation Date"
-                name="bookingDate"
-                type="date"
-                required
-                value={formData.bookingDate}
-                onChange={handleChange}
-                error={formErrors.bookingDate}
-              />
-              <Input
-                label="Start Time"
-                name="startTime"
-                type="time"
-                required
-                value={formData.startTime}
-                onChange={handleChange}
-                error={formErrors.startTime}
-              />
-              <Input
-                label="End Time"
-                name="endTime"
-                type="time"
-                required
-                value={formData.endTime}
-                onChange={handleChange}
-                error={formErrors.endTime}
-              />
-            </div>
-          </div>
-
-          {/* Special Requests */}
-          <div>
-            <Textarea
-              label="Special Equipment or Setup Requirements (Optional)"
-              name="specialRequests"
-              placeholder="e.g. Stage microphone requested, banquet table layout, early load-in needed..."
-              value={formData.specialRequests}
-              onChange={handleChange}
-              helperText="Note: Audio/visual technicians and kitchen access require administrative pre-clearance."
-            />
-          </div>
-
-          {/* Terms & Conditions Checkbox */}
-          <div className="pt-2">
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                name="agreeToTerms"
-                checked={formData.agreeToTerms}
-                onChange={handleChange}
-                className="mt-0.5 rounded border-[#CDC5B7] text-[#1A3B2B] focus:ring-[#1A3B2B] h-4 w-4"
-              />
-              <span className="text-xs text-[#615B52] leading-relaxed">
-                I understand that this request is subject to administrative review under Municipal Civic Bylaw No. 410-B. I agree to abide by facility quiet hours, cleanup regulations, and safety protocols.
-              </span>
-            </label>
-            {formErrors.agreeToTerms && (
-              <p className="mt-1 text-xs text-[#D92D20] font-medium">
-                {formErrors.agreeToTerms}
-              </p>
-            )}
-          </div>
-
-          {/* Submit Actions */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#E5DFD5]">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="text-xs"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              isLoading={isSubmitting}
-              className="text-xs"
-            >
-              Submit Booking Request
-            </Button>
-          </div>
-        </form>
+        <BookingRequestFormBody
+          key={`${hall.id}-${effectiveDate}-${initialStartTime}-${initialEndTime}`}
+          hall={hall}
+          onClose={handleClose}
+          initialDate={effectiveDate}
+          initialStartTime={initialStartTime}
+          initialEndTime={initialEndTime}
+          onSubmitted={setSubmittedBooking}
+        />
       )}
     </Modal>
   );
