@@ -94,11 +94,106 @@ export interface AuditEvent {
   actorId?: string | null;
   actorEmail: string;
   action: string;
-  entityType: 'Booking' | 'Hall' | 'MaintenanceWindow' | 'Profile';
+  entityType:
+    | 'Booking'
+    | 'Hall'
+    | 'MaintenanceWindow'
+    | 'Profile'
+    | 'Consent'
+    | 'DeletionRequest'
+    | 'BreachIncident';
   entityId: string;
   summary: string;
   metadata?: Record<string, unknown>;
   timestamp: string;
+}
+
+export type ConsentType =
+  | 'COOKIE_ESSENTIAL'
+  | 'COOKIE_FUNCTIONAL'
+  | 'COOKIE_ANALYTICS'
+  | 'MARKETING_EMAIL'
+  | 'TERMS_AND_PRIVACY'
+  | 'PAYMENT_TERMS';
+
+export interface CookiePreferences {
+  necessary: true;
+  functional: boolean;
+  analytics: boolean;
+  marketing: boolean;
+  version: string;
+  updatedAt: string;
+}
+
+export interface ConsentRecord {
+  id: string;
+  userId?: string | null;
+  subjectEmail?: string | null;
+  consentType: ConsentType;
+  granted: boolean;
+  policyVersion: string;
+  source: string;
+  legalBasis: string;
+  recordedAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type DeletionRequestStatus = 'PENDING' | 'IN_REVIEW' | 'COMPLETED' | 'REJECTED';
+
+export interface DataDeletionRequest {
+  id: string;
+  referenceCode: string;
+  userId?: string | null;
+  requesterEmail: string;
+  requesterName?: string | null;
+  bookingReference?: string | null;
+  scope: 'FULL_ACCOUNT' | 'BOOKING_PII' | 'MARKETING_DATA';
+  reason?: string | null;
+  status: DeletionRequestStatus;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  resolutionNotes?: string | null;
+  anonymizedRecordsCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BreachSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export type BreachStatus =
+  | 'DETECTED'
+  | 'CONTAINED'
+  | 'ASSESSING'
+  | 'NOTIFIED_AUTHORITY'
+  | 'NOTIFIED_SUBJECTS'
+  | 'RESOLVED';
+
+export interface BreachIncident {
+  id: string;
+  incidentCode: string;
+  title: string;
+  severity: BreachSeverity;
+  status: BreachStatus;
+  affectedDataCategories: string[];
+  estimatedAffectedSubjects: number;
+  summary: string;
+  containmentActions: string;
+  detectedAt: string;
+  notificationDeadlineAt: string; // 72 hours after detectedAt (GDPR Art. 33)
+  authorityNotifiedAt?: string | null;
+  subjectsNotifiedAt?: string | null;
+  reportedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BookingFeeSummary {
+  hourlyRate: number;
+  durationHours: number;
+  baseRentalFee: number;
+  securityDeposit: number;
+  estimatedTotalDueOnApproval: number;
+  currency: 'INR';
 }
 
 export interface TimeSlot {

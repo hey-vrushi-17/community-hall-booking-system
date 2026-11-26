@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Clock, CheckCircle2, Copy, ExternalLink } from 'lucide-react';
+import { Clock, CheckCircle2, Copy, ExternalLink, UserCheck, LogIn } from 'lucide-react';
 import { Hall } from '@/types';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { getAppTodayDateString, getTimezoneLabel } from '@/lib/utils/timezone';
+import { useSupabaseUser } from '@/lib/supabase/use-user';
 
 export interface BookingRequestModalProps {
   hall: Hall;
@@ -38,10 +39,10 @@ function BookingRequestFormBody({
 }) {
   const [formData, setFormData] = React.useState({
     hallId: hall.id,
-    requesterName: '',
-    requesterEmail: '',
-    requesterPhone: '',
-    requesterOrg: '',
+    requesterName: null as string | null,
+    requesterEmail: null as string | null,
+    requesterPhone: null as string | null,
+    requesterOrg: null as string | null,
     eventName: '',
     eventType: 'Community Meeting',
     expectedAttendees: Math.min(50, hall.capacity),
@@ -56,6 +57,12 @@ function BookingRequestFormBody({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [conflictError, setConflictError] = React.useState<string | null>(null);
   const tzLabel = getTimezoneLabel();
+  const { user, isLoading: isAuthLoading, isConfigured: isSupabaseReady } = useSupabaseUser();
+
+  const requesterName = formData.requesterName ?? user?.profile.fullName ?? '';
+  const requesterEmail = formData.requesterEmail ?? user?.email ?? '';
+  const requesterPhone = formData.requesterPhone ?? user?.profile.phone ?? '';
+  const requesterOrg = formData.requesterOrg ?? user?.profile.organization ?? '';
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -84,13 +91,13 @@ function BookingRequestFormBody({
     setFormErrors({});
 
     const errors: Record<string, string> = {};
-    if (!formData.requesterName.trim()) {
+    if (!requesterName.trim()) {
       errors.requesterName = 'Full name is required';
     }
-    if (!formData.requesterEmail.trim()) {
+    if (!requesterEmail.trim()) {
       errors.requesterEmail = 'Email address is required';
     }
-    if (!formData.requesterPhone.trim()) {
+    if (!requesterPhone.trim()) {
       errors.requesterPhone = 'Contact phone number is required';
     }
     if (!formData.eventName.trim()) {
@@ -131,6 +138,10 @@ function BookingRequestFormBody({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
+          requesterName,
+          requesterEmail,
+          requesterPhone,
+          requesterOrg,
           expectedAttendees: Number(formData.expectedAttendees),
         }),
       });
@@ -180,6 +191,30 @@ function BookingRequestFormBody({
         Submitting this form creates a <strong>PENDING</strong> request for review. It is not a confirmed booking until approved by an administrator.
       </div>
 
+      {isSupabaseReady && !isAuthLoading && (
+        user ? (
+          <div className="p-3 rounded-md bg-[#EBF3EE] border border-[#CDE3D5] text-xs text-[#1A3B2B] flex items-center gap-2">
+            <UserCheck className="w-4 h-4 shrink-0 text-[#1A3B2B]" />
+            <span>
+              Signed in as <strong>{user.email}</strong> — linked to your My Requests dashboard.
+            </span>
+          </div>
+        ) : (
+          <div className="p-3 rounded-md bg-white border border-[#E5DFD5] text-xs text-[#615B52] flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              <LogIn className="w-3.5 h-3.5 text-[#1A3B2B]" />
+              <span>Sign in to save this request to your citizen dashboard.</span>
+            </span>
+            <Link
+              href={`/login?next=${encodeURIComponent(`/halls/${hall.slug}`)}`}
+              className="text-[#1A3B2B] font-semibold hover:underline"
+            >
+              Sign In / Register →
+            </Link>
+          </div>
+        )
+      )}
+
       <div>
         <h4 className="text-xs font-bold uppercase tracking-wider text-[#1C1917] mb-3 pb-1 border-b border-[#E5DFD5]">
           1. Requester Contact Information
@@ -190,7 +225,7 @@ function BookingRequestFormBody({
             name="requesterName"
             placeholder="Aarav Sharma"
             required
-            value={formData.requesterName}
+            value={requesterName}
             onChange={handleChange}
             error={formErrors.requesterName}
           />
@@ -200,7 +235,7 @@ function BookingRequestFormBody({
             type="email"
             placeholder="aarav.sharma@example.org"
             required
-            value={formData.requesterEmail}
+            value={requesterEmail}
             onChange={handleChange}
             error={formErrors.requesterEmail}
           />
@@ -210,7 +245,7 @@ function BookingRequestFormBody({
             type="tel"
             placeholder="+91 98110 12345"
             required
-            value={formData.requesterPhone}
+            value={requesterPhone}
             onChange={handleChange}
             error={formErrors.requesterPhone}
           />
@@ -218,7 +253,7 @@ function BookingRequestFormBody({
             label="Organization / Group (Optional)"
             name="requesterOrg"
             placeholder="Neighborhood Association, Club, etc."
-            value={formData.requesterOrg}
+            value={requesterOrg}
             onChange={handleChange}
           />
         </div>

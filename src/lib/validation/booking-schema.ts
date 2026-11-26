@@ -42,8 +42,9 @@ export const bookingFormSchema = z
       .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'End time must be HH:MM format'),
     specialRequests: z.string().trim().max(500, 'Maximum 500 characters').optional(),
     agreeToTerms: z.literal(true, {
-      error: 'You must agree to the facility usage policies and terms',
+      error: 'You must agree to the facility usage policies, Terms & Conditions, and Privacy Policy',
     }),
+    marketingOptIn: z.boolean().optional().default(false),
   })
   .refine(
     (data) => {

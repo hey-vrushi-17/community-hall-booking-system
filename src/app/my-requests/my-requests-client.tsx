@@ -2,15 +2,13 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   FileText,
-  Lock,
-  Search,
   User,
   LogOut,
   ShieldCheck,
   XCircle,
-  KeyRound,
   Save,
 } from 'lucide-react';
 import { Booking } from '@/types';
@@ -18,12 +16,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
 import { Modal } from '@/components/ui/modal';
+import { CitizenAuthCard } from '@/components/auth/citizen-auth-card';
 import { createClient } from '@/lib/supabase/client';
 import { DatabaseBookingRow, mapBookingFromDb } from '@/lib/supabase/types';
 import { formatDateInAppTz, formatTimeInAppTz, getTimezoneLabel } from '@/lib/utils/timezone';
-import { SITE_CONFIG } from '@/lib/config/site-config';
-
-type AuthMode = 'signin' | 'signup' | 'recovery';
 
 interface UserProfileState {
   fullName: string;
@@ -32,6 +28,7 @@ interface UserProfileState {
 }
 
 export function MyRequestsClient() {
+  const router = useRouter();
   const [currentUser, setCurrentUser] = React.useState<{ id: string; email: string } | null>(null);
   const [profile, setProfile] = React.useState<UserProfileState>({
     fullName: '',
@@ -41,16 +38,7 @@ export function MyRequestsClient() {
   const supabase = React.useMemo(() => createClient(), []);
   const [bookings, setBookings] = React.useState<Booking[]>([]);
   const [isLoading, setIsLoading] = React.useState(Boolean(supabase));
-
-  const [authEmail, setAuthEmail] = React.useState('');
-  const [authPassword, setAuthPassword] = React.useState('');
-  const [signupFullName, setSignupFullName] = React.useState('');
-  const [signupPhone, setSignupPhone] = React.useState('');
-  const [signupOrg, setSignupOrg] = React.useState('');
-  const [isSubmittingAuth, setIsSubmittingAuth] = React.useState(false);
-  const [authMessage, setAuthMessage] = React.useState<string | null>(null);
   const [authError, setAuthError] = React.useState<string | null>(null);
-  const [mode, setMode] = React.useState<AuthMode>('signin');
 
   // Profile saving
   const [isSavingProfile, setIsSavingProfile] = React.useState(false);
@@ -67,6 +55,8 @@ export function MyRequestsClient() {
 
   const refreshUserAndBookings = React.useCallback(async () => {
     if (!supabase) return;
+    setAuthError(null);
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -115,46 +105,7 @@ export function MyRequestsClient() {
     async function loadInitialSession() {
       if (!client) return;
       try {
-        const {
-          data: { user },
-        } = await client.auth.getUser();
-
-        if (!active) return;
-
-        if (!user) {
-          setCurrentUser(null);
-          setBookings([]);
-          return;
-        }
-
-        setCurrentUser({ id: user.id, email: user.email || '' });
-
-        const [{ data: profileRow }, { data: bookingRows, error: bookingError }] = await Promise.all([
-          client.from('profiles').select('full_name, phone, organization').eq('id', user.id).maybeSingle(),
-          client
-            .from('bookings')
-            .select('*, halls(name)')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false }),
-        ]);
-
-        if (!active) return;
-
-        if (profileRow) {
-          setProfile({
-            fullName: profileRow.full_name || '',
-            phone: profileRow.phone || '',
-            organization: profileRow.organization || '',
-          });
-        }
-
-        if (bookingError) {
-          setAuthError(`Failed to load your booking requests: ${bookingError.message}`);
-        } else if (bookingRows) {
-          setBookings(
-            (bookingRows as unknown as DatabaseBookingRow[]).map((row) => mapBookingFromDb(row))
-          );
-        }
+        await refreshUserAndBookings();
       } catch {
         if (active) setAuthError('Unable to verify session status.');
       } finally {
@@ -163,93 +114,27 @@ export function MyRequestsClient() {
     }
 
     loadInitialSession();
+
+    const {
+      data: { subscription },
+    } = client.auth.onAuthStateChange(() => {
+      if (active) {
+        refreshUserAndBookings();
+      }
+    });
+
     return () => {
       active = false;
+      subscription.unsubscribe();
     };
-  }, [supabase]);
-
-  const handleAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!supabase) {
-      setAuthError(
-        'Supabase is not configured yet. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to enable authentication.'
-      );
-      return;
-    }
-
-    setIsSubmittingAuth(true);
-    setAuthError(null);
-    setAuthMessage(null);
-
-    try {
-      if (mode === 'recovery') {
-        const redirectTo = `${window.location.origin || SITE_CONFIG.siteUrl}/auth/callback?next=/auth/update-password`;
-        const { error } = await supabase.auth.resetPasswordForEmail(authEmail.trim(), {
-          redirectTo,
-        });
-        if (error) {
-          setAuthError(error.message);
-        } else {
-          setAuthMessage(
-            'If an account exists for that email, a password recovery link has been sent. Open the link to reset your password.'
-          );
-        }
-        return;
-      }
-
-      if (!authEmail || !authPassword) {
-        setAuthError('Please provide both email and password.');
-        return;
-      }
-
-      if (mode === 'signin') {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: authEmail.trim(),
-          password: authPassword,
-        });
-        if (error) {
-          setAuthError(error.message);
-        } else {
-          setAuthMessage('Signed in successfully.');
-          await refreshUserAndBookings();
-        }
-      } else {
-        const redirectTo = `${window.location.origin || SITE_CONFIG.siteUrl}/auth/callback?next=/my-requests`;
-        const { data, error } = await supabase.auth.signUp({
-          email: authEmail.trim(),
-          password: authPassword,
-          options: {
-            emailRedirectTo: redirectTo,
-            data: {
-              full_name: signupFullName.trim() || undefined,
-              phone: signupPhone.trim() || undefined,
-              organization: signupOrg.trim() || undefined,
-            },
-          },
-        });
-        if (error) {
-          setAuthError(error.message);
-        } else if (data.session) {
-          setAuthMessage('Account created and signed in.');
-          await refreshUserAndBookings();
-        } else {
-          setAuthMessage(
-            'Registration initiated! Check your email inbox to confirm your account before signing in.'
-          );
-        }
-      }
-    } catch (err: unknown) {
-      setAuthError(err instanceof Error ? err.message : 'Authentication failed.');
-    } finally {
-      setIsSubmittingAuth(false);
-    }
-  };
+  }, [supabase, refreshUserAndBookings]);
 
   const handleSignOut = async () => {
     if (supabase) {
       await supabase.auth.signOut();
       setCurrentUser(null);
       setBookings([]);
+      router.refresh();
     }
   };
 
@@ -258,6 +143,7 @@ export function MyRequestsClient() {
     if (!supabase || !currentUser) return;
     setIsSavingProfile(true);
     setProfileFeedback(null);
+    setAuthError(null);
 
     const { error } = await supabase
       .from('profiles')
@@ -560,190 +446,10 @@ export function MyRequestsClient() {
   }
 
   return (
-    <div className="max-w-md mx-auto space-y-6">
-      <div className="civic-card p-6 sm:p-8 bg-white border border-[#E5DFD5] space-y-5">
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-full bg-[#EBF3EE] text-[#1A3B2B] flex items-center justify-center mx-auto">
-            {mode === 'recovery' ? <KeyRound className="w-6 h-6" /> : <Lock className="w-6 h-6" />}
-          </div>
-          <h2 className="text-xl font-bold text-[#1C1917]">
-            {mode === 'signin'
-              ? 'Sign In to Your Account'
-              : mode === 'signup'
-              ? 'Register Citizen Account'
-              : 'Reset Your Password'}
-          </h2>
-          <p className="text-xs text-[#615B52]">
-            {mode === 'recovery'
-              ? 'Enter your email address to receive a Supabase password recovery link.'
-              : 'View and manage your community hall booking requests securely under Row Level Security.'}
-          </p>
-        </div>
-
-        {authMessage && (
-          <Alert variant="info" className="text-xs">
-            {authMessage}
-          </Alert>
-        )}
-
-        {authError && (
-          <Alert variant="error" className="text-xs">
-            {authError}
-          </Alert>
-        )}
-
-        <form onSubmit={handleAuthSubmit} className="space-y-4">
-          {mode === 'signup' && (
-            <>
-              <div>
-                <label htmlFor="signup-name" className="block text-xs font-semibold text-[#1C1917] mb-1">
-                  Full Name
-                </label>
-                <input
-                  id="signup-name"
-                  type="text"
-                  required
-                  value={signupFullName}
-                  onChange={(e) => setSignupFullName(e.target.value)}
-                  placeholder="Aarav Sharma"
-                  className="w-full text-xs px-3 py-2 rounded-md border border-[#E5DFD5] focus:ring-1 focus:ring-[#1A3B2B]"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="signup-phone" className="block text-xs font-semibold text-[#1C1917] mb-1">
-                    Phone (Optional)
-                  </label>
-                  <input
-                    id="signup-phone"
-                    type="tel"
-                    value={signupPhone}
-                    onChange={(e) => setSignupPhone(e.target.value)}
-                    placeholder="+91 98..."
-                    className="w-full text-xs px-3 py-2 rounded-md border border-[#E5DFD5] focus:ring-1 focus:ring-[#1A3B2B]"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="signup-org" className="block text-xs font-semibold text-[#1C1917] mb-1">
-                    Organization (Optional)
-                  </label>
-                  <input
-                    id="signup-org"
-                    type="text"
-                    value={signupOrg}
-                    onChange={(e) => setSignupOrg(e.target.value)}
-                    placeholder="Association"
-                    className="w-full text-xs px-3 py-2 rounded-md border border-[#E5DFD5] focus:ring-1 focus:ring-[#1A3B2B]"
-                  />
-                </div>
-              </div>
-            </>
-          )}
-
-          <div>
-            <label htmlFor="auth-email" className="block text-xs font-semibold text-[#1C1917] mb-1">
-              Email Address
-            </label>
-            <input
-              id="auth-email"
-              type="email"
-              required
-              value={authEmail}
-              onChange={(e) => setAuthEmail(e.target.value)}
-              placeholder="citizen@example.com"
-              className="w-full text-xs px-3 py-2 rounded-md border border-[#E5DFD5] focus:ring-1 focus:ring-[#1A3B2B]"
-            />
-          </div>
-
-          {mode !== 'recovery' && (
-            <div>
-              <label htmlFor="auth-password" className="block text-xs font-semibold text-[#1C1917] mb-1">
-                Password
-              </label>
-              <input
-                id="auth-password"
-                type="password"
-                required
-                minLength={6}
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full text-xs px-3 py-2 rounded-md border border-[#E5DFD5] focus:ring-1 focus:ring-[#1A3B2B]"
-              />
-            </div>
-          )}
-
-          <Button
-            type="submit"
-            variant="primary"
-            className="w-full text-xs"
-            disabled={isSubmittingAuth}
-          >
-            {isSubmittingAuth
-              ? 'Processing...'
-              : mode === 'signin'
-              ? 'Sign In to View Requests'
-              : mode === 'signup'
-              ? 'Create Citizen Account'
-              : 'Send Recovery Email'}
-          </Button>
-
-          <div className="flex flex-col items-center gap-2 pt-2 text-xs">
-            {mode === 'signin' && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('recovery');
-                    setAuthError(null);
-                    setAuthMessage(null);
-                  }}
-                  className="text-[#615B52] hover:text-[#1A3B2B] hover:underline"
-                >
-                  Forgot your password?
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('signup');
-                    setAuthError(null);
-                    setAuthMessage(null);
-                  }}
-                  className="text-[#1A3B2B] hover:underline font-semibold"
-                >
-                  Don&apos;t have an account yet? Register here
-                </button>
-              </>
-            )}
-
-            {mode !== 'signin' && (
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('signin');
-                  setAuthError(null);
-                  setAuthMessage(null);
-                }}
-                className="text-[#1A3B2B] hover:underline font-semibold"
-              >
-                Back to Sign In
-              </button>
-            )}
-          </div>
-        </form>
-
-        <div className="border-t border-[#E5DFD5] pt-5 text-center space-y-2">
-          <span className="text-xs text-[#8A8275] block">
-            Prefer looking up a reference code directly?
-          </span>
-          <Link href="/track">
-            <Button variant="outline" size="sm" className="w-full text-xs gap-1.5">
-              <Search className="w-3.5 h-3.5" />
-              Track by Reference Number
-            </Button>
-          </Link>
-        </div>
-      </div>
-    </div>
+    <CitizenAuthCard
+      initialMode="signin"
+      redirectTo="/my-requests"
+      onAuthenticated={refreshUserAndBookings}
+    />
   );
 }

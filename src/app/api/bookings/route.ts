@@ -16,6 +16,8 @@ import { isSupabaseConfigured, rethrowNextControlFlowError } from '@/lib/supabas
 import { getAdminSession } from '@/lib/auth/admin-auth';
 import { zonedLocalToUtcDate } from '@/lib/utils/timezone';
 import { Booking } from '@/types';
+import { complianceStore } from '@/lib/services/compliance-store';
+import { COMPLIANCE_VERSIONS } from '@/lib/config/compliance-config';
 
 function maskEmail(email: string): string {
   const [local, domain] = email.split('@');
@@ -109,6 +111,35 @@ export async function POST(request: NextRequest) {
     }
 
     const newBooking = await createBookingRequest(data, userId);
+
+    // Record GDPR Art. 6(1)(b) terms/payment acknowledgement and optional unbundled Art. 6(1)(a) marketing opt-in
+    try {
+      await complianceStore.recordConsent({
+        userId,
+        subjectEmail: data.requesterEmail,
+        consentType: 'TERMS_AND_PRIVACY',
+        granted: true,
+        policyVersion: COMPLIANCE_VERSIONS.termsAndConditions,
+        source: 'booking_submission',
+        legalBasis: 'GDPR Art. 6(1)(b) Pre-contractual & Facility Terms Acceptance',
+        metadata: { referenceNumber: newBooking.referenceNumber },
+      });
+
+      if (data.marketingOptIn) {
+        await complianceStore.recordConsent({
+          userId,
+          subjectEmail: data.requesterEmail,
+          consentType: 'MARKETING_EMAIL',
+          granted: true,
+          policyVersion: COMPLIANCE_VERSIONS.privacyPolicy,
+          source: 'booking_submission_opt_in',
+          legalBasis: 'GDPR Art. 6(1)(a) Unbundled Explicit Consent',
+          metadata: { referenceNumber: newBooking.referenceNumber },
+        });
+      }
+    } catch {
+      // Non-blocking: booking submission succeeds even if optional compliance migration is not yet applied
+    }
 
     return NextResponse.json(
       {

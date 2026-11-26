@@ -2,13 +2,16 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Landmark, Menu, X, Search, ShieldCheck } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Landmark, Menu, X, Search, ShieldCheck, LogIn, User, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useSupabaseUser } from '@/lib/supabase/use-user';
 
 export function CivicHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, isLoading, signOut, isConfigured } = useSupabaseUser();
 
   const navLinks = [
     { href: '/', label: 'Overview' },
@@ -17,6 +20,14 @@ export function CivicHeader() {
     { href: '/track', label: 'Track Request' },
     { href: '/my-requests', label: 'My Requests' },
   ];
+
+  const handleSignOut = async () => {
+    await signOut();
+    setMobileMenuOpen(false);
+    router.refresh();
+  };
+
+  const displayName = user?.profile.fullName || user?.email || 'Account';
 
   return (
     <header className="border-b border-[#E5DFD5] bg-[#FBF9F5] sticky top-0 z-40">
@@ -55,7 +66,7 @@ export function CivicHeader() {
                 CivicSpaces
               </span>
               <span className="text-xs text-[#615B52] block font-normal">
-                Community Hall Booking & Management
+                Community Hall Booking &amp; Management
               </span>
             </div>
           </Link>
@@ -84,13 +95,51 @@ export function CivicHeader() {
             })}
           </nav>
 
-          {/* Header Action Button */}
-          <div className="hidden md:flex items-center gap-3">
-            <Link href="/track">
-              <Button variant="outline" size="sm" className="text-xs">
-                Check Status
-              </Button>
-            </Link>
+          {/* Header Action Buttons */}
+          <div className="hidden md:flex items-center gap-2.5">
+            {isConfigured && !isLoading && (
+              user ? (
+                <>
+                  <Link
+                    href="/my-requests"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#EBF3EE] text-[#1A3B2B] text-xs font-semibold hover:bg-[#DDECE3] transition-colors max-w-[180px]"
+                    title={user.email}
+                  >
+                    {user.profile.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={user.profile.avatarUrl}
+                        alt={displayName}
+                        referrerPolicy="no-referrer"
+                        className="h-4 w-4 rounded-full object-cover shrink-0"
+                      />
+                    ) : (
+                      <User className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="truncate">{displayName}</span>
+                  </Link>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSignOut}
+                    className="gap-1 text-xs text-[#615B52]"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span>Sign Out</span>
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Link href="/login">
+                    <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                      <LogIn className="h-3.5 w-3.5" />
+                      <span>Sign In</span>
+                    </Button>
+                  </Link>
+                </>
+              )
+            )}
             <Link href="/halls">
               <Button variant="primary" size="sm" className="gap-2 text-xs">
                 <Search className="h-3.5 w-3.5" />
@@ -134,6 +183,42 @@ export function CivicHeader() {
             ))}
           </nav>
           <div className="pt-2 border-t border-[#E5DFD5] flex flex-col gap-2">
+            {isConfigured && !isLoading && (
+              user ? (
+                <>
+                  <Link
+                    href="/my-requests"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="px-3 py-2 rounded-md bg-[#EBF3EE] text-[#1A3B2B] text-xs font-semibold flex items-center gap-2"
+                  >
+                    <User className="h-3.5 w-3.5" />
+                    <span className="truncate">Signed in as {displayName}</span>
+                  </Link>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleSignOut}
+                    className="w-full justify-center gap-1.5 text-xs"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    Sign Out
+                  </Button>
+                </>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
+                    <Button variant="outline" className="w-full justify-center text-xs">
+                      Sign In
+                    </Button>
+                  </Link>
+                  <Link href="/signup" onClick={() => setMobileMenuOpen(false)}>
+                    <Button variant="secondary" className="w-full justify-center text-xs">
+                      Create Account
+                    </Button>
+                  </Link>
+                </div>
+              )
+            )}
             <Link href="/halls" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="primary" className="w-full justify-center">
                 Browse Halls

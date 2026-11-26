@@ -2,6 +2,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Landmark, Mail, Phone, MapPin, Clock } from 'lucide-react';
 import { SITE_CONFIG } from '@/lib/config/site-config';
+import { CookieSettingsButton } from '@/components/compliance/cookie-consent-banner';
 
 export function CivicFooter() {
   return (
@@ -102,11 +103,31 @@ export function CivicFooter() {
       </div>
 
       <div className="border-t border-[#E5DFD5] bg-[#EAE4DB] py-4 text-xs text-[#615B52]">
-        <div className="civic-container flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+        <div className="civic-container flex flex-col lg:flex-row items-center justify-between gap-3 text-center lg:text-left">
           <p>© 2026 {SITE_CONFIG.divisionName}. All rights reserved.</p>
-          <div className="flex items-center gap-6 text-[11px]">
-            <span>Accessibility (WCAG 2.1 AA)</span>
-            <span>Privacy &amp; Public Records</span>
+          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-[11px]">
+            <Link href="/legal" className="hover:text-[#1A3B2B] transition-colors font-semibold">
+              Compliance Center (01–15)
+            </Link>
+            <Link href="/legal/privacy-policy" className="hover:text-[#1A3B2B] transition-colors">
+              Privacy Policy
+            </Link>
+            <Link href="/legal/terms" className="hover:text-[#1A3B2B] transition-colors">
+              Terms &amp; Conditions
+            </Link>
+            <Link href="/legal/gdpr" className="hover:text-[#1A3B2B] transition-colors">
+              GDPR
+            </Link>
+            <Link href="/legal/payment-terms" className="hover:text-[#1A3B2B] transition-colors">
+              Payment Terms
+            </Link>
+            <Link href="/legal/open-source-licences" className="hover:text-[#1A3B2B] transition-colors">
+              Open-Source Licences
+            </Link>
+            <Link href="/privacy-center" className="hover:text-[#1A3B2B] transition-colors">
+              Privacy Center
+            </Link>
+            <CookieSettingsButton />
             <Link href="/admin" className="hover:text-[#1A3B2B] transition-colors">
               Staff Portal
             </Link>

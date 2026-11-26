@@ -1227,6 +1227,126 @@ class BookingDataStore {
 
     return result;
   }
+
+  public async getBookingsByEmail(email: string): Promise<Booking[]> {
+    const cleanEmail = email.trim().toLowerCase();
+    if (isSupabaseConfigured()) {
+      const adminClient = createAdminClient();
+      const supabase = adminClient ?? (await getTrustedServerClient());
+      if (!supabase) {
+        throw new DatabaseSetupError('Supabase client is unavailable.');
+      }
+
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*, halls(name)')
+        .eq('requester_email', cleanEmail)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw new DatabaseSetupError(
+          `Supabase bookings lookup failed (${error.code || 'DB_ERROR'}): ${error.message}`,
+          error.code || 'DB_ERROR'
+        );
+      }
+
+      return ((data || []) as unknown as DatabaseBookingRow[]).map((r) => mapBookingFromDb(r));
+    }
+
+    return this.bookings
+      .filter((b) => b.requesterEmail.toLowerCase() === cleanEmail)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  public async anonymizePiiForSubject(params: {
+    userId?: string | null;
+    email?: string | null;
+    bookingReference?: string | null;
+  }): Promise<number> {
+    const cleanEmail = params.email?.trim().toLowerCase() || null;
+    const cleanRef = params.bookingReference?.trim().toUpperCase() || null;
+    const cleanUserId = toNullableUuid(params.userId);
+    const anonymizedEmail = `erased-${Date.now().toString(36)}@anonymized.local`;
+
+    if (isSupabaseConfigured()) {
+      const adminClient = createAdminClient();
+      if (!adminClient) {
+        throw new DatabaseSetupError(
+          'Service role key is required to execute server-side PII anonymization.'
+        );
+      }
+
+      let query = adminClient
+        .from('bookings')
+        .update({
+          requester_name: 'Redacted User (GDPR Art. 17)',
+          requester_email: anonymizedEmail,
+          requester_phone: 'REDACTED',
+          requester_org: null,
+          special_requests: null,
+          user_id: null,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (cleanRef) {
+        query = query.eq('reference_number', cleanRef);
+      } else if (cleanUserId && cleanEmail) {
+        query = query.or(`user_id.eq.${cleanUserId},requester_email.eq.${cleanEmail}`);
+      } else if (cleanUserId) {
+        query = query.eq('user_id', cleanUserId);
+      } else if (cleanEmail) {
+        query = query.eq('requester_email', cleanEmail);
+      } else {
+        return 0;
+      }
+
+      const { data, error } = await query.select('id');
+      if (error) {
+        throw new DatabaseSetupError(
+          `Failed to anonymize booking records (${error.code || 'DB_ERROR'}): ${error.message}`,
+          error.code || 'DB_ERROR'
+        );
+      }
+
+      if (cleanUserId) {
+        await adminClient
+          .from('profiles')
+          .update({
+            full_name: 'Deleted Citizen',
+            phone: null,
+            organization: null,
+            marketing_opt_in: false,
+            consent_updated_at: new Date().toISOString(),
+          })
+          .eq('id', cleanUserId);
+      }
+
+      return Array.isArray(data) ? data.length : 0;
+    }
+
+    let count = 0;
+    this.bookings = this.bookings.map((b) => {
+      const matchesRef = cleanRef && b.referenceNumber.toUpperCase() === cleanRef;
+      const matchesUser = cleanUserId && b.userId === cleanUserId;
+      const matchesEmail = cleanEmail && b.requesterEmail.toLowerCase() === cleanEmail;
+      if (matchesRef || (!cleanRef && (matchesUser || matchesEmail))) {
+        count += 1;
+        return {
+          ...b,
+          userId: null,
+          requesterName: 'Redacted User (GDPR Art. 17)',
+          requesterEmail: anonymizedEmail,
+          requesterPhone: 'REDACTED',
+          requesterOrg: null,
+          specialRequests: null,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return b;
+    });
+
+    return count;
+  }
 }
 
 export const bookingStore = new BookingDataStore();
@@ -1279,3 +1399,9 @@ export const updateMaintenanceWindow = (
 export const cancelMaintenanceWindow = (id: string, reason?: string, actor?: ActorInfo) =>
   bookingStore.cancelMaintenanceWindow(id, reason, actor);
 export const getAuditEvents = (filters?: AuditFilters) => bookingStore.getAuditEvents(filters);
+export const getBookingsByEmail = (email: string) => bookingStore.getBookingsByEmail(email);
+export const anonymizePiiForSubject = (params: {
+  userId?: string | null;
+  email?: string | null;
+  bookingReference?: string | null;
+}) => bookingStore.anonymizePiiForSubject(params);

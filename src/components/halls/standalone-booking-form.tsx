@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Calendar, Building, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Calendar, Building, ArrowRight, CheckCircle2, AlertCircle, UserCheck, LogIn } from 'lucide-react';
 import { Hall } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { getAppTodayDateString, getTimezoneLabel } from '@/lib/utils/timezone';
+import { useSupabaseUser } from '@/lib/supabase/use-user';
 
 interface StandaloneBookingFormProps {
   halls: Hall[];
@@ -29,10 +30,10 @@ export function StandaloneBookingForm({
 
   const [formData, setFormData] = React.useState({
     hallId: defaultHall?.id || '',
-    requesterName: '',
-    requesterEmail: '',
-    requesterPhone: '',
-    requesterOrg: '',
+    requesterName: null as string | null,
+    requesterEmail: null as string | null,
+    requesterPhone: null as string | null,
+    requesterOrg: null as string | null,
     eventName: '',
     eventType: 'Community Meeting',
     expectedAttendees: defaultHall ? Math.min(50, defaultHall.capacity) : 25,
@@ -46,6 +47,13 @@ export function StandaloneBookingForm({
   const [formErrors, setFormErrors] = React.useState<Record<string, string>>({});
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const { user, isLoading: isAuthLoading, isConfigured: isSupabaseReady } = useSupabaseUser();
+
+  const requesterName = formData.requesterName ?? user?.profile.fullName ?? '';
+  const requesterEmail = formData.requesterEmail ?? user?.email ?? '';
+  const requesterPhone = formData.requesterPhone ?? user?.profile.phone ?? '';
+  const requesterOrg = formData.requesterOrg ?? user?.profile.organization ?? '';
 
   const selectedHall = halls.find((h) => h.id === formData.hallId) || defaultHall;
 
@@ -74,9 +82,9 @@ export function StandaloneBookingForm({
     setFormErrors({});
 
     const errors: Record<string, string> = {};
-    if (!formData.requesterName.trim()) errors.requesterName = 'Full name is required';
-    if (!formData.requesterEmail.trim()) errors.requesterEmail = 'Email is required';
-    if (!formData.requesterPhone.trim()) errors.requesterPhone = 'Phone number is required';
+    if (!requesterName.trim()) errors.requesterName = 'Full name is required';
+    if (!requesterEmail.trim()) errors.requesterEmail = 'Email is required';
+    if (!requesterPhone.trim()) errors.requesterPhone = 'Phone number is required';
     if (!formData.eventName.trim()) errors.eventName = 'Event title is required';
     if (Number(formData.expectedAttendees) <= 0) {
       errors.expectedAttendees = 'Must be at least 1 guest';
@@ -107,6 +115,10 @@ export function StandaloneBookingForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
+          requesterName,
+          requesterEmail,
+          requesterPhone,
+          requesterOrg,
           expectedAttendees: Number(formData.expectedAttendees),
         }),
       });
@@ -149,6 +161,42 @@ export function StandaloneBookingForm({
         <strong>Request Review Process:</strong> Submitting this form registers a{' '}
         <strong>PENDING</strong> booking request. Slots are not locked until reviewed and approved by facility staff.
       </Alert>
+
+      {isSupabaseReady && !isAuthLoading && (
+        user ? (
+          <div className="p-3.5 rounded-md bg-[#EBF3EE] border border-[#CDE3D5] text-xs text-[#1A3B2B] flex items-center gap-2.5">
+            <UserCheck className="w-4 h-4 shrink-0 text-[#1A3B2B]" />
+            <span>
+              Signed in as <strong>{user.email}</strong>. Your profile details are pre-filled and this request will be linked to your{' '}
+              <Link href="/my-requests" className="underline font-semibold">
+                My Requests
+              </Link>{' '}
+              dashboard.
+            </span>
+          </div>
+        ) : (
+          <div className="p-3.5 rounded-md bg-[#FBF9F5] border border-[#E5DFD5] text-xs text-[#615B52] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <span className="flex items-center gap-2">
+              <LogIn className="w-4 h-4 shrink-0 text-[#1A3B2B]" />
+              <span>
+                Have a citizen account? Sign in to pre-fill your contact info and manage pending requests.
+              </span>
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <Link href="/login?next=/request">
+                <Button type="button" variant="outline" size="sm" className="text-xs">
+                  Sign In
+                </Button>
+              </Link>
+              <Link href="/signup?next=/request">
+                <Button type="button" variant="secondary" size="sm" className="text-xs">
+                  Create Account
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )
+      )}
 
       {submitError && (
         <Alert variant="error" title="Unable to Submit Request" className="text-xs">
@@ -279,7 +327,7 @@ export function StandaloneBookingForm({
             label="Full Name"
             name="requesterName"
             required
-            value={formData.requesterName}
+            value={requesterName}
             onChange={handleChange}
             error={formErrors.requesterName}
           />
@@ -288,7 +336,7 @@ export function StandaloneBookingForm({
             name="requesterEmail"
             type="email"
             required
-            value={formData.requesterEmail}
+            value={requesterEmail}
             onChange={handleChange}
             error={formErrors.requesterEmail}
           />
@@ -297,14 +345,14 @@ export function StandaloneBookingForm({
             name="requesterPhone"
             type="tel"
             required
-            value={formData.requesterPhone}
+            value={requesterPhone}
             onChange={handleChange}
             error={formErrors.requesterPhone}
           />
           <Input
             label="Organization / Group (Optional)"
             name="requesterOrg"
-            value={formData.requesterOrg}
+            value={requesterOrg}
             onChange={handleChange}
           />
         </div>

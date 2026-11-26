@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import './globals.css';
 import { CivicHeader } from '@/components/layout/civic-header';
 import { CivicFooter } from '@/components/layout/civic-footer';
+import { CookieConsentBanner } from '@/components/compliance/cookie-consent-banner';
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +39,7 @@ export default function RootLayout({
         </Suspense>
         <main className="flex-1">{children}</main>
         <CivicFooter />
+        <CookieConsentBanner />
       </body>
     </html>
   );
