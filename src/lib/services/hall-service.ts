@@ -1,19 +1,9 @@
 import { Hall, HallFilters } from '@/types';
 import { SAMPLE_HALLS } from '@/lib/data/sample-halls';
-import { isSupabaseConfigured } from '@/lib/supabase/config';
+import { isSupabaseConfigured, logFallbackWarning } from '@/lib/supabase/config';
 import { createPublicClient } from '@/lib/supabase/server';
 import { createClient } from '@/lib/supabase/server';
 import { mapHallFromDb, DatabaseHallRow } from '@/lib/supabase/types';
-
-// Helper to mute internal Next.js prerender bail-out exceptions and dev-only fallbacks
-function logHallWarning(msg: string, err?: unknown) {
-  if ((err as any)?.digest?.startsWith?.('NEXT_') || (err as any)?.digest === 'HANGING_PROMISE_REJECTION') {
-    throw err;
-  }
-  if (process.env.NODE_ENV === 'development') {
-    logHallWarning(msg, err);
-  }
-}
 
 // Runtime in-memory halls store (allows creation, edits, and archiving in development mode)
 let runtimeHalls: Hall[] = [...SAMPLE_HALLS];
@@ -51,7 +41,7 @@ export async function getAllHalls(filters?: HallFilters): Promise<Hall[]> {
 
         if (error) {
           if (process.env.NODE_ENV === 'development') {
-            logHallWarning('Supabase query error in getAllHalls, falling back to sample halls:', error.message);
+            logFallbackWarning('Supabase query error in getAllHalls, falling back to sample halls:', error.message);
           }
         } else if (data && data.length > 0) {
           let results: Hall[] = (data as unknown as DatabaseHallRow[]).map(mapHallFromDb);
@@ -80,7 +70,7 @@ export async function getAllHalls(filters?: HallFilters): Promise<Hall[]> {
         }
       }
     } catch (err) {
-      logHallWarning('Failed to reach Supabase in getAllHalls:', err);
+      logFallbackWarning('Failed to reach Supabase in getAllHalls:', err);
     }
   }
 
@@ -142,7 +132,7 @@ export async function getAllHallsAdmin(includeArchived = true): Promise<Hall[]> 
         }
       }
     } catch (err) {
-      logHallWarning('Supabase getAllHallsAdmin failed, using runtime store:', err);
+      logFallbackWarning('Supabase getAllHallsAdmin failed, using runtime store:', err);
     }
   }
 
@@ -167,13 +157,13 @@ export async function getHallBySlug(slug: string): Promise<Hall | null> {
           .maybeSingle();
 
         if (error) {
-          logHallWarning(`Supabase error fetching hall slug "${slug}":`, error.message);
+          logFallbackWarning(`Supabase error fetching hall slug "${slug}":`, error.message);
         } else if (data) {
           return mapHallFromDb(data as unknown as DatabaseHallRow);
         }
       }
     } catch (err) {
-      logHallWarning('Error reading hall from Supabase:', err);
+      logFallbackWarning('Error reading hall from Supabase:', err);
     }
   }
 
@@ -196,13 +186,13 @@ export async function getHallById(id: string): Promise<Hall | null> {
           .maybeSingle();
 
         if (error) {
-          logHallWarning(`Supabase error fetching hall ID "${id}":`, error.message);
+          logFallbackWarning(`Supabase error fetching hall ID "${id}":`, error.message);
         } else if (data) {
           return mapHallFromDb(data as unknown as DatabaseHallRow);
         }
       }
     } catch (err) {
-      logHallWarning('Error reading hall from Supabase:', err);
+      logFallbackWarning('Error reading hall from Supabase:', err);
     }
   }
 
@@ -278,11 +268,11 @@ export async function createHall(data: Partial<Hall>): Promise<Hall> {
         });
 
         if (error) {
-          logHallWarning('Failed to insert hall into Supabase, saving to runtime store:', error.message);
+          logFallbackWarning('Failed to insert hall into Supabase, saving to runtime store:', error.message);
         }
       }
     } catch (err) {
-      logHallWarning('Supabase createHall error:', err);
+      logFallbackWarning('Supabase createHall error:', err);
     }
   }
 
@@ -332,7 +322,7 @@ export async function updateHall(id: string, updates: Partial<Hall>): Promise<Ha
         await supabase.from('halls').update(payload).eq('id', id);
       }
     } catch (err) {
-      logHallWarning('Supabase updateHall error:', err);
+      logFallbackWarning('Supabase updateHall error:', err);
     }
   }
 

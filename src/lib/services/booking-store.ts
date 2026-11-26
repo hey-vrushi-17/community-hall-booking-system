@@ -13,7 +13,7 @@ import {
 } from '@/lib/data/sample-bookings';
 import { SAMPLE_HALLS } from '@/lib/data/sample-halls';
 import { BookingFormData } from '@/lib/validation/booking-schema';
-import { isSupabaseConfigured } from '@/lib/supabase/config';
+import { isSupabaseConfigured, logFallbackWarning } from '@/lib/supabase/config';
 import { createClient } from '@/lib/supabase/server';
 import {
   mapBookingFromDb,
@@ -22,16 +22,6 @@ import {
   DatabaseMaintenanceRow,
 } from '@/lib/supabase/types';
 import { getHallById } from './hall-service';
-
-// Helper to mute internal Next.js prerender bail-out exceptions and dev-only fallbacks
-function logStoreWarning(msg: string, err: unknown) {
-  if ((err as any)?.digest?.startsWith?.('NEXT_') || (err as any)?.digest === 'HANGING_PROMISE_REJECTION') {
-    throw err;
-  }
-  if (process.env.NODE_ENV === 'development') {
-    logStoreWarning(msg, err);
-  }
-}
 
 // In-Memory Fallback Store (Used when Supabase credentials are not configured)
 class BookingDataStore {
@@ -73,7 +63,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        logStoreWarning('Supabase getBookingsForHall failed, using fallback:', err);
+        logFallbackWarning('Supabase getBookingsForHall failed, using fallback:', err);
       }
     }
     return this.bookings.filter((b) => b.hallId === hallId);
@@ -94,7 +84,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        logStoreWarning('Supabase getMaintenanceForHall failed, using fallback:', err);
+        logFallbackWarning('Supabase getMaintenanceForHall failed, using fallback:', err);
       }
     }
     return this.maintenance.filter((m) => m.hallId === hallId);
@@ -115,7 +105,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        logStoreWarning('Supabase getAllMaintenance failed, using fallback:', err);
+        logFallbackWarning('Supabase getAllMaintenance failed, using fallback:', err);
       }
     }
     return [...this.maintenance].sort(
@@ -139,7 +129,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        logStoreWarning('Supabase getAllBookings failed, using fallback:', err);
+        logFallbackWarning('Supabase getAllBookings failed, using fallback:', err);
       }
     }
 
@@ -168,7 +158,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        logStoreWarning('Supabase getBookingByReference failed, using fallback:', err);
+        logFallbackWarning('Supabase getBookingByReference failed, using fallback:', err);
       }
     }
 
@@ -194,7 +184,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        logStoreWarning('Supabase getBookingById failed, using fallback:', err);
+        logFallbackWarning('Supabase getBookingById failed, using fallback:', err);
       }
     }
 
@@ -221,7 +211,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        logStoreWarning('Supabase getUserBookings failed, using fallback:', err);
+        logFallbackWarning('Supabase getUserBookings failed, using fallback:', err);
       }
     }
 
@@ -290,7 +280,7 @@ class BookingDataStore {
           }
         }
       } catch (err: unknown) {
-        logStoreWarning('Supabase booking creation encountered an error, falling back to local store:', err);
+        logFallbackWarning('Supabase booking creation encountered an error, falling back to local store:', err);
       }
     }
 
@@ -453,7 +443,7 @@ class BookingDataStore {
           }
         }
       } catch (err) {
-        logStoreWarning('Supabase rejectBooking failed, fallback to local store:', err);
+        logFallbackWarning('Supabase rejectBooking failed, fallback to local store:', err);
       }
     }
 
@@ -596,11 +586,11 @@ class BookingDataStore {
             status: newWindow.status,
           });
           if (error) {
-            logStoreWarning('Supabase insert maintenance failed, using local store:', error.message);
+            logFallbackWarning('Supabase insert maintenance failed, using local store:', error.message);
           }
         }
       } catch (err) {
-        logStoreWarning('Supabase createMaintenanceWindow error:', err);
+        logFallbackWarning('Supabase createMaintenanceWindow error:', err);
       }
     }
 
@@ -683,7 +673,7 @@ class BookingDataStore {
           await supabase.from('maintenance_windows').update(payload).eq('id', id);
         }
       } catch (err) {
-        logStoreWarning('Supabase updateMaintenanceWindow error:', err);
+        logFallbackWarning('Supabase updateMaintenanceWindow error:', err);
       }
     }
 

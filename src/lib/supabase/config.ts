@@ -47,3 +47,34 @@ export function getSupabaseServiceRoleKey(): string | null {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   return key && key.length > 0 ? key : null;
 }
+
+/**
+ * Rethrows Next.js internal control-flow errors (prerender bail-outs, redirects, notFound)
+ * so catch blocks never swallow or misreport framework signals.
+ */
+export function rethrowNextControlFlowError(err: unknown): void {
+  const digest =
+    err && typeof err === 'object' && 'digest' in err
+      ? (err as { digest?: unknown }).digest
+      : undefined;
+  if (
+    typeof digest === 'string' &&
+    (digest.startsWith('NEXT_') || digest === 'HANGING_PROMISE_REJECTION')
+  ) {
+    throw err;
+  }
+}
+
+/**
+ * Logs fallback warnings only in development while propagating Next.js internal errors.
+ */
+export function logFallbackWarning(message: string, err?: unknown): void {
+  rethrowNextControlFlowError(err);
+  if (process.env.NODE_ENV === 'development') {
+    if (err !== undefined) {
+      console.warn(message, err);
+    } else {
+      console.warn(message);
+    }
+  }
+}
