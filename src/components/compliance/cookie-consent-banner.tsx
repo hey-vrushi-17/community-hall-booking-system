@@ -12,6 +12,7 @@ import {
 } from '@/lib/config/compliance-config';
 
 export const OPEN_COOKIE_SETTINGS_EVENT = 'civicspaces:open-cookie-settings';
+const CONSENT_CHANGED_EVENT = 'civicspaces:cookie-consent-changed';
 
 export function dispatchOpenCookieSettings() {
   if (typeof window !== 'undefined') {
@@ -31,54 +32,70 @@ export function CookieSettingsButton({ className = '' }: { className?: string })
   );
 }
 
-function readConsentFromBrowserCookie(): CookiePreferences | null {
+function readConsentCookieRaw(): string | null {
   if (typeof document === 'undefined') return null;
   const match = document.cookie
     .split('; ')
     .find((row) => row.startsWith(`${COOKIE_CONSENT_COOKIE_NAME}=`));
-  if (!match) return null;
-  const rawValue = match.split('=').slice(1).join('=');
+  return match ? match.split('=').slice(1).join('=') : null;
+}
+
+function parseConsentCookie(raw: string | null): CookiePreferences | null {
+  if (!raw) return null;
   try {
-    return JSON.parse(decodeURIComponent(rawValue)) as CookiePreferences;
+    return JSON.parse(decodeURIComponent(raw)) as CookiePreferences;
   } catch {
     return null;
   }
 }
 
+const emptySubscribe = () => () => {};
+
+function subscribeConsentStore(callback: () => void) {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener(CONSENT_CHANGED_EVENT, callback);
+  return () => window.removeEventListener(CONSENT_CHANGED_EVENT, callback);
+}
+
 export function CookieConsentBanner() {
-  const [hasMounted, setHasMounted] = React.useState(false);
-  const [showBanner, setShowBanner] = React.useState(false);
+  const isClient = React.useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+  const rawSavedCookie = React.useSyncExternalStore(
+    subscribeConsentStore,
+    readConsentCookieRaw,
+    () => null
+  );
+  const savedPreferences = React.useMemo(
+    () => parseConsentCookie(rawSavedCookie),
+    [rawSavedCookie]
+  );
+
+  const gpcDetected = React.useMemo(() => {
+    if (!isClient) return false;
+    const nav = navigator as Navigator & { globalPrivacyControl?: boolean };
+    return Boolean(nav.globalPrivacyControl);
+  }, [isClient]);
+
   const [showModal, setShowModal] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
-  const [gpcDetected, setGpcDetected] = React.useState(false);
+  const [functionalOverride, setFunctionalOverride] = React.useState<boolean | null>(null);
+  const [analyticsOverride, setAnalyticsOverride] = React.useState<boolean | null>(null);
+  const [marketingOverride, setMarketingOverride] = React.useState<boolean | null>(null);
 
-  const [functional, setFunctional] = React.useState(true);
-  const [analytics, setAnalytics] = React.useState(false);
-  const [marketing, setMarketing] = React.useState(false);
+  const functional = functionalOverride ?? savedPreferences?.functional ?? true;
+  const analytics =
+    analyticsOverride ?? (gpcDetected ? false : (savedPreferences?.analytics ?? false));
+  const marketing =
+    marketingOverride ?? (gpcDetected ? false : (savedPreferences?.marketing ?? false));
 
   React.useEffect(() => {
-    setHasMounted(true);
-    const nav = navigator as Navigator & { globalPrivacyControl?: boolean };
-    const hasGpc = Boolean(nav.globalPrivacyControl);
-    setGpcDetected(hasGpc);
-
-    const saved = readConsentFromBrowserCookie();
-    if (saved) {
-      setFunctional(Boolean(saved.functional));
-      setAnalytics(hasGpc ? false : Boolean(saved.analytics));
-      setMarketing(hasGpc ? false : Boolean(saved.marketing));
-      setShowBanner(false);
-    } else {
-      setShowBanner(true);
-    }
-
     const handleOpen = () => {
-      const current = readConsentFromBrowserCookie();
-      if (current) {
-        setFunctional(Boolean(current.functional));
-        setAnalytics(Boolean(current.analytics));
-        setMarketing(Boolean(current.marketing));
-      }
+      setFunctionalOverride(null);
+      setAnalyticsOverride(null);
+      setMarketingOverride(null);
       setShowModal(true);
     };
 
@@ -101,10 +118,10 @@ export function CookieConsentBanner() {
     };
 
     try {
-      // Immediate browser cookie fallback
       document.cookie = `${COOKIE_CONSENT_COOKIE_NAME}=${encodeURIComponent(
         JSON.stringify(payload)
       )}; path=/; max-age=15552000; SameSite=Lax`;
+      window.dispatchEvent(new CustomEvent(CONSENT_CHANGED_EVENT));
 
       await fetch('/api/privacy/consent', {
         method: 'POST',
@@ -119,18 +136,18 @@ export function CookieConsentBanner() {
         }),
       });
     } catch {
-      // Cookie already written client-side
+      // Cookie already persisted client-side
     } finally {
-      setFunctional(next.functional);
-      setAnalytics(next.analytics);
-      setMarketing(next.marketing);
-      setShowBanner(false);
+      setFunctionalOverride(next.functional);
+      setAnalyticsOverride(next.analytics);
+      setMarketingOverride(next.marketing);
       setShowModal(false);
       setIsSaving(false);
     }
   };
 
-  if (!hasMounted) return null;
+  if (!isClient) return null;
+  const showBanner = savedPreferences === null;
 
   return (
     <>
@@ -252,7 +269,7 @@ export function CookieConsentBanner() {
             <input
               type="checkbox"
               checked={functional}
-              onChange={(e) => setFunctional(e.target.checked)}
+              onChange={(e) => setFunctionalOverride(e.target.checked)}
               className="mt-1 h-4 w-4 rounded border-[#CDC5B7] text-[#1A3B2B] focus:ring-[#1A3B2B]"
             />
           </label>
@@ -268,7 +285,7 @@ export function CookieConsentBanner() {
             <input
               type="checkbox"
               checked={analytics}
-              onChange={(e) => setAnalytics(e.target.checked)}
+              onChange={(e) => setAnalyticsOverride(e.target.checked)}
               className="mt-1 h-4 w-4 rounded border-[#CDC5B7] text-[#1A3B2B] focus:ring-[#1A3B2B]"
             />
           </label>

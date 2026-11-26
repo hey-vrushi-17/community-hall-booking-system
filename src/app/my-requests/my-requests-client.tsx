@@ -10,6 +10,9 @@ import {
   ShieldCheck,
   XCircle,
   Save,
+  Download,
+  Trash2,
+  Lock,
 } from 'lucide-react';
 import { Booking } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -303,11 +306,33 @@ export function MyRequestsClient() {
           </form>
         </div>
 
-        <div className="bg-[#EBF3EE] border border-[#CDE3D5] rounded-md p-3.5 text-xs text-[#1A3B2B] flex items-center gap-2.5">
-          <ShieldCheck className="w-4 h-4 shrink-0 text-[#1A3B2B]" />
-          <span>
-            <strong>Row Level Security Protected:</strong> You are viewing only booking requests linked to your account. You may cancel any request still in <strong>PENDING</strong> status.
-          </span>
+        <div className="bg-[#EBF3EE] border border-[#CDE3D5] rounded-md p-3.5 text-xs text-[#1A3B2B] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck className="w-4 h-4 shrink-0 text-[#1A3B2B]" />
+            <span>
+              <strong>Row Level Security Protected:</strong> You are viewing only booking requests linked to your account. You may cancel any request still in <strong>PENDING</strong> status.
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <a href="/api/privacy/export?download=1">
+              <Button type="button" variant="outline" size="sm" className="text-xs gap-1.5 bg-white">
+                <Download className="w-3.5 h-3.5" />
+                Export Data (JSON)
+              </Button>
+            </a>
+            <Link href="/privacy-center">
+              <Button type="button" variant="outline" size="sm" className="text-xs gap-1.5 bg-white">
+                <Lock className="w-3.5 h-3.5" />
+                Privacy &amp; Consent
+              </Button>
+            </Link>
+            <Link href="/privacy-center#deletion">
+              <Button type="button" variant="outline" size="sm" className="text-xs gap-1.5 bg-white text-[#B42318] border-[#FECDCA] hover:bg-[#FEF3F2]">
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Data
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {bookings.length === 0 ? (

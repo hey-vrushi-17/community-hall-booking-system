@@ -19,6 +19,12 @@ import {
 import { SAMPLE_HALLS } from '../src/lib/data/sample-halls';
 import { zonedLocalToUtcIso } from '../src/lib/utils/timezone';
 import { validateBookingBusinessRules } from '../src/lib/validation/booking-schema';
+import { complianceStore } from '../src/lib/services/compliance-store';
+import {
+  calculateBookingFeeSummary,
+  LEGAL_DOCUMENTS,
+  OPEN_SOURCE_PACKAGES,
+} from '../src/lib/config/compliance-config';
 
 async function runVerification() {
   console.log('=== RUNNING CIVICSPACES SYSTEM VERIFICATION ===\n');
@@ -359,6 +365,88 @@ async function runVerification() {
   assert(
     hallAuditEvents.some((e) => e.action === 'ARCHIVE_HALL' && e.entityId === createdFacility.id),
     'Audit events record hall administrative changes with filtering support'
+  );
+
+  // 17. Compliance Suite & Payment Fee Summary verification
+  assert(
+    LEGAL_DOCUMENTS.length === 15,
+    'All 15 compliance and legal policy documents should be registered'
+  );
+  assert(
+    OPEN_SOURCE_PACKAGES.length >= 15,
+    'Open-source licence inventory should document project dependencies'
+  );
+
+  const feeSummary = calculateBookingFeeSummary(2000, '10:00', '14:00');
+  assert(
+    feeSummary &&
+      feeSummary.durationHours === 4 &&
+      feeSummary.baseRentalFee === 8000 &&
+      feeSummary.securityDeposit === 2000 &&
+      feeSummary.estimatedTotalDueOnApproval === 10000,
+    'Payment & Subscription Terms fee calculator computes rental and 25% refundable deposit accurately'
+  );
+
+  // 18. Consent Receipt & GDPR Data Export & Art. 17 PII Anonymization
+  const consentReceipt = await complianceStore.recordConsent({
+    subjectEmail: 'kavita@civic.example',
+    consentType: 'MARKETING_EMAIL',
+    granted: true,
+    policyVersion: '2026.1',
+    source: 'domain_test',
+    legalBasis: 'GDPR Art. 6(1)(a)',
+  });
+  assert(consentReceipt.id && consentReceipt.granted === true, 'Consent receipt recorded');
+
+  const exportedData = await complianceStore.exportPersonalData({
+    email: 'kavita@civic.example',
+  });
+  assert(
+    exportedData.bookings.length >= 1 && exportedData.consentHistory.length >= 1,
+    'GDPR Art. 15/20 data export bundles bookings and consent receipts for data subject'
+  );
+
+  const deletionResult = await complianceStore.createDeletionRequest({
+    requesterEmail: 'kavita@civic.example',
+    bookingReference: req1.referenceNumber,
+    scope: 'BOOKING_PII',
+    reason: 'Verification test erasure',
+    executeImmediately: true,
+  });
+  assert(
+    deletionResult.status === 'COMPLETED' && deletionResult.anonymizedRecordsCount >= 1,
+    'GDPR Art. 17 self-service erasure anonymizes booking PII immediately when verified'
+  );
+
+  // 19. 72-Hour Data Breach Incident Workflow
+  const incident = await complianceStore.createBreachIncident({
+    title: 'Verification Drill Incident',
+    severity: 'MEDIUM',
+    affectedDataCategories: ['Email'],
+    estimatedAffectedSubjects: 2,
+    summary: 'Simulated verification breach incident for 72h SLA calculation',
+    containmentActions: 'Session revoked and rotated',
+    reportedBy: 'admin@civic.example',
+  });
+  const deadlineDiffHours =
+    (new Date(incident.notificationDeadlineAt).getTime() -
+      new Date(incident.detectedAt).getTime()) /
+    (1000 * 60 * 60);
+  assert(
+    Math.round(deadlineDiffHours) === 72 && incident.status === 'DETECTED',
+    'Breach incident sets exact 72-hour GDPR Art. 33 notification deadline'
+  );
+
+  const updatedIncident = await complianceStore.updateBreachIncident({
+    incidentId: incident.id,
+    status: 'NOTIFIED_AUTHORITY',
+    adminEmail: 'admin@civic.example',
+  });
+  assert(
+    updatedIncident &&
+      updatedIncident.status === 'NOTIFIED_AUTHORITY' &&
+      Boolean(updatedIncident.authorityNotifiedAt),
+    'Updating breach incident to NOTIFIED_AUTHORITY records notification timestamp'
   );
 
   console.log(`\n========================================`);

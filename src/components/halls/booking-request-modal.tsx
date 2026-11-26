@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { getAppTodayDateString, getTimezoneLabel } from '@/lib/utils/timezone';
 import { useSupabaseUser } from '@/lib/supabase/use-user';
+import { calculateBookingFeeSummary } from '@/lib/config/compliance-config';
 
 export interface BookingRequestModalProps {
   hall: Hall;
@@ -51,6 +52,7 @@ function BookingRequestFormBody({
     endTime: initialEndTime,
     specialRequests: '',
     agreeToTerms: false,
+    marketingOptIn: false,
   });
 
   const [formErrors, setFormErrors] = React.useState<Record<string, string>>({});
@@ -63,6 +65,11 @@ function BookingRequestFormBody({
   const requesterEmail = formData.requesterEmail ?? user?.email ?? '';
   const requesterPhone = formData.requesterPhone ?? user?.profile.phone ?? '';
   const requesterOrg = formData.requesterOrg ?? user?.profile.organization ?? '';
+  const feeSummary = calculateBookingFeeSummary(
+    hall.hourlyRate,
+    formData.startTime,
+    formData.endTime
+  );
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -356,7 +363,32 @@ function BookingRequestFormBody({
         />
       </div>
 
-      <div className="pt-2">
+      {feeSummary && (
+        <div className="p-3.5 rounded-md bg-[#FBF9F5] border border-[#E5DFD5] text-xs space-y-1.5">
+          <div className="flex items-center justify-between font-bold text-[#1C1917]">
+            <span>Estimated Fee Summary (Due Only Upon Approval)</span>
+            <Link href="/legal/payment-terms" target="_blank" className="text-[#1A3B2B] underline font-semibold">
+              Payment Terms
+            </Link>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-[11px] text-[#615B52]">
+            <div>
+              Rental ({feeSummary.durationHours}h × ₹{feeSummary.hourlyRate}):{' '}
+              <strong className="text-[#1C1917]">₹{feeSummary.baseRentalFee.toLocaleString('en-IN')}</strong>
+            </div>
+            <div>
+              Refundable Deposit:{' '}
+              <strong className="text-[#1C1917]">₹{feeSummary.securityDeposit.toLocaleString('en-IN')}</strong>
+            </div>
+            <div>
+              Est. Total on Approval:{' '}
+              <strong className="text-[#1A3B2B]">₹{feeSummary.estimatedTotalDueOnApproval.toLocaleString('en-IN')}</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="pt-2 space-y-2.5">
         <label className="flex items-start gap-2.5 cursor-pointer">
           <input
             type="checkbox"
@@ -366,7 +398,19 @@ function BookingRequestFormBody({
             className="mt-0.5 rounded border-[#CDC5B7] text-[#1A3B2B] focus:ring-[#1A3B2B] h-4 w-4"
           />
           <span className="text-xs text-[#615B52] leading-relaxed">
-            I understand that this request enters administrative review and is not confirmed until approved. I agree to abide by facility quiet hours, cleanup regulations, and safety protocols.
+            I understand this request enters administrative review and is not confirmed until approved. I agree to the{' '}
+            <Link href="/legal/terms" target="_blank" className="text-[#1A3B2B] font-semibold underline">
+              Terms &amp; Conditions
+            </Link>
+            ,{' '}
+            <Link href="/legal/payment-terms" target="_blank" className="text-[#1A3B2B] font-semibold underline">
+              Payment &amp; Refund Terms
+            </Link>
+            , and{' '}
+            <Link href="/legal/privacy-policy" target="_blank" className="text-[#1A3B2B] font-semibold underline">
+              Privacy Policy
+            </Link>
+            .
           </span>
         </label>
         {formErrors.agreeToTerms && (
@@ -374,6 +418,22 @@ function BookingRequestFormBody({
             {formErrors.agreeToTerms}
           </p>
         )}
+
+        <label className="flex items-start gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            name="marketingOptIn"
+            checked={formData.marketingOptIn}
+            onChange={handleChange}
+            className="mt-0.5 rounded border-[#CDC5B7] text-[#1A3B2B] focus:ring-[#1A3B2B] h-4 w-4"
+          />
+          <span className="text-[11px] text-[#615B52] leading-relaxed">
+            (Optional) Send me seasonal hall availability notices and municipal community updates.{' '}
+            <Link href="/legal/marketing-consent" target="_blank" className="text-[#1A3B2B] underline">
+              Marketing Consent Policy
+            </Link>
+          </span>
+        </label>
       </div>
 
       <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#E5DFD5]">

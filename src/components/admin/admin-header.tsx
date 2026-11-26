@@ -14,6 +14,7 @@ import {
   Building,
   Wrench,
   History,
+  Scale,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AdminUser } from '@/lib/auth/admin-auth';
@@ -65,6 +66,11 @@ export function AdminHeader({ user, pendingCount = 0 }: AdminHeaderProps) {
       href: '/admin/audit',
       label: 'Audit History',
       icon: History,
+    },
+    {
+      href: '/admin/compliance',
+      label: 'Compliance & Breaches',
+      icon: Scale,
     },
   ];
 

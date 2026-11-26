@@ -101,6 +101,9 @@ export function AuditHistoryClient({ initialEvents }: AuditHistoryClientProps) {
               <option value="Booking">Booking</option>
               <option value="Hall">Hall</option>
               <option value="MaintenanceWindow">MaintenanceWindow</option>
+              <option value="Consent">Consent</option>
+              <option value="DeletionRequest">DeletionRequest</option>
+              <option value="BreachIncident">BreachIncident</option>
             </select>
           </div>
 

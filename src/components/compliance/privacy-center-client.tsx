@@ -27,21 +27,21 @@ export function PrivacyCenterClient() {
 
   // GDPR Art. 15 / 20 Data Export state
   const [exportRef, setExportRef] = React.useState('');
-  const [exportEmail, setExportEmail] = React.useState('');
+  const [exportEmailInput, setExportEmailInput] = React.useState<string | null>(null);
   const [exportJson, setExportJson] = React.useState<string | null>(null);
   const [exportError, setExportError] = React.useState<string | null>(null);
   const [isExporting, setIsExporting] = React.useState(false);
 
   // Marketing Consent state
-  const [marketingEmail, setMarketingEmail] = React.useState('');
+  const [marketingEmailInput, setMarketingEmailInput] = React.useState<string | null>(null);
   const [marketingGranted, setMarketingGranted] = React.useState(false);
   const [marketingStatus, setMarketingStatus] = React.useState<string | null>(null);
   const [marketingError, setMarketingError] = React.useState<string | null>(null);
   const [isSavingMarketing, setIsSavingMarketing] = React.useState(false);
 
   // Data Deletion (GDPR Art. 17) state
-  const [delEmail, setDelEmail] = React.useState('');
-  const [delName, setDelName] = React.useState('');
+  const [delEmailInput, setDelEmailInput] = React.useState<string | null>(null);
+  const [delNameInput, setDelNameInput] = React.useState<string | null>(null);
   const [delBookingRef, setDelBookingRef] = React.useState('');
   const [delScope, setDelScope] = React.useState<'FULL_ACCOUNT' | 'BOOKING_PII' | 'MARKETING_DATA'>('BOOKING_PII');
   const [delReason, setDelReason] = React.useState('');
@@ -51,22 +51,25 @@ export function PrivacyCenterClient() {
   const [delError, setDelError] = React.useState<string | null>(null);
   const [myDeletionRequests, setMyDeletionRequests] = React.useState<DataDeletionRequest[]>([]);
 
-  React.useEffect(() => {
-    if (user?.email) {
-      setExportEmail(user.email);
-      setMarketingEmail(user.email);
-      setDelEmail(user.email);
-      setDelName(user.profile.fullName || '');
+  const exportEmail = exportEmailInput ?? user?.email ?? '';
+  const marketingEmail = marketingEmailInput ?? user?.email ?? '';
+  const delEmail = delEmailInput ?? user?.email ?? '';
+  const delName = delNameInput ?? user?.profile.fullName ?? '';
 
-      fetch('/api/privacy/deletion')
-        .then((res) => (res.ok ? res.json() : { requests: [] }))
-        .then((data) => {
-          if (Array.isArray(data.requests)) {
-            setMyDeletionRequests(data.requests);
-          }
-        })
-        .catch(() => {});
-    }
+  React.useEffect(() => {
+    if (!user?.email) return;
+    let active = true;
+    fetch('/api/privacy/deletion')
+      .then((res) => (res.ok ? res.json() : { requests: [] }))
+      .then((data) => {
+        if (active && Array.isArray(data.requests)) {
+          setMyDeletionRequests(data.requests);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [user]);
 
   const handleExportData = async (downloadFile: boolean) => {
@@ -265,7 +268,7 @@ export function PrivacyCenterClient() {
               type="email"
               placeholder="ananya.deshmukh@example.org"
               value={exportEmail}
-              onChange={(e) => setExportEmail(e.target.value)}
+              onChange={(e) => setExportEmailInput(e.target.value)}
             />
           </div>
         )}
@@ -326,7 +329,7 @@ export function PrivacyCenterClient() {
               type="email"
               placeholder="citizen@example.org"
               value={marketingEmail}
-              onChange={(e) => setMarketingEmail(e.target.value)}
+              onChange={(e) => setMarketingEmailInput(e.target.value)}
             />
           </div>
         )}
@@ -391,13 +394,13 @@ export function PrivacyCenterClient() {
               type="email"
               required
               value={delEmail}
-              onChange={(e) => setDelEmail(e.target.value)}
+              onChange={(e) => setDelEmailInput(e.target.value)}
               placeholder="citizen@example.org"
             />
             <Input
               label="Full Name (Optional)"
               value={delName}
-              onChange={(e) => setDelName(e.target.value)}
+              onChange={(e) => setDelNameInput(e.target.value)}
               placeholder="Your name"
             />
             <Select

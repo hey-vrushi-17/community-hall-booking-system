@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { getAppTodayDateString, getTimezoneLabel } from '@/lib/utils/timezone';
 import { useSupabaseUser } from '@/lib/supabase/use-user';
+import { calculateBookingFeeSummary } from '@/lib/config/compliance-config';
 
 interface StandaloneBookingFormProps {
   halls: Hall[];
@@ -42,6 +43,7 @@ export function StandaloneBookingForm({
     endTime: '14:00',
     specialRequests: '',
     agreeToTerms: false,
+    marketingOptIn: false,
   });
 
   const [formErrors, setFormErrors] = React.useState<Record<string, string>>({});
@@ -56,6 +58,9 @@ export function StandaloneBookingForm({
   const requesterOrg = formData.requesterOrg ?? user?.profile.organization ?? '';
 
   const selectedHall = halls.find((h) => h.id === formData.hallId) || defaultHall;
+  const feeSummary = selectedHall
+    ? calculateBookingFeeSummary(selectedHall.hourlyRate, formData.startTime, formData.endTime)
+    : null;
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -366,7 +371,32 @@ export function StandaloneBookingForm({
         />
       </div>
 
-      <div>
+      {feeSummary && (
+        <div className="p-4 rounded-md bg-[#FBF9F5] border border-[#E5DFD5] text-xs space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-[#1C1917]">
+            <span>Estimated Fee &amp; Deposit Summary (Payable Only After Approval)</span>
+            <Link href="/legal/payment-terms" target="_blank" className="text-[#1A3B2B] underline font-semibold">
+              View Payment &amp; Refund Terms →
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[#615B52]">
+            <div>
+              Base Rental ({feeSummary.durationHours}h × ₹{feeSummary.hourlyRate}/hr):{' '}
+              <strong className="text-[#1C1917]">₹{feeSummary.baseRentalFee.toLocaleString('en-IN')}</strong>
+            </div>
+            <div>
+              Refundable Security Deposit:{' '}
+              <strong className="text-[#1C1917]">₹{feeSummary.securityDeposit.toLocaleString('en-IN')}</strong>
+            </div>
+            <div>
+              Est. Total on Approval:{' '}
+              <strong className="text-[#1A3B2B]">₹{feeSummary.estimatedTotalDueOnApproval.toLocaleString('en-IN')}</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
         <label className="flex items-start gap-2.5 cursor-pointer">
           <input
             type="checkbox"
@@ -376,12 +406,40 @@ export function StandaloneBookingForm({
             className="mt-0.5 rounded border-[#CDC5B7] text-[#1A3B2B] focus:ring-[#1A3B2B] h-4 w-4"
           />
           <span className="text-xs text-[#615B52] leading-relaxed">
-            I understand that submitting this request does not confirm a reservation until reviewed and approved by the facility administrator.
+            I understand that submitting this request does not confirm a reservation until reviewed and approved by the facility administrator, and I agree to the{' '}
+            <Link href="/legal/terms" target="_blank" className="text-[#1A3B2B] font-semibold underline">
+              Terms &amp; Conditions
+            </Link>
+            ,{' '}
+            <Link href="/legal/payment-terms" target="_blank" className="text-[#1A3B2B] font-semibold underline">
+              Payment &amp; Subscription Terms
+            </Link>
+            , and{' '}
+            <Link href="/legal/privacy-policy" target="_blank" className="text-[#1A3B2B] font-semibold underline">
+              Privacy Policy
+            </Link>
+            .
           </span>
         </label>
         {formErrors.agreeToTerms && (
           <p className="mt-1 text-xs text-[#D92D20] font-medium">{formErrors.agreeToTerms}</p>
         )}
+
+        <label className="flex items-start gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            name="marketingOptIn"
+            checked={formData.marketingOptIn}
+            onChange={handleChange}
+            className="mt-0.5 rounded border-[#CDC5B7] text-[#1A3B2B] focus:ring-[#1A3B2B] h-4 w-4"
+          />
+          <span className="text-[11px] text-[#615B52] leading-relaxed">
+            (Optional) Receive municipal hall availability announcements and community programming updates.{' '}
+            <Link href="/legal/marketing-consent" target="_blank" className="text-[#1A3B2B] underline">
+              Learn more
+            </Link>
+          </span>
+        </label>
       </div>
 
       <div className="pt-4 border-t border-[#E5DFD5] flex flex-col sm:flex-row items-center justify-between gap-3">
