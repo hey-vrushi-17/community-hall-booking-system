@@ -1,8 +1,7 @@
 import { Hall, HallFilters } from '@/types';
 import { SAMPLE_HALLS } from '@/lib/data/sample-halls';
 import { isSupabaseConfigured, logFallbackWarning } from '@/lib/supabase/config';
-import { createPublicClient } from '@/lib/supabase/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createPublicClient } from '@/lib/supabase/server';
 import { mapHallFromDb, DatabaseHallRow } from '@/lib/supabase/types';
 
 // Runtime in-memory halls store (allows creation, edits, and archiving in development mode)
